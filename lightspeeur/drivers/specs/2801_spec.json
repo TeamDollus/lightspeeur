@@ -1,0 +1,13 @@
+{
+    "quantization": {
+        "1": {
+            "weight": 12,
+            "bias": 12
+        },
+        "3": {
+            "weight": 12,
+            "bias": 18
+        }
+    },
+    "min_channels": 16
+}
