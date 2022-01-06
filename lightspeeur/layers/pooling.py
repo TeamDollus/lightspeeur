@@ -14,3 +14,15 @@ class MaxPooling2D(layers.Layer):
 
     def get_config(self):
         return super(MaxPooling2D, self).get_config()
+
+
+class TopLeftPooling2D(layers.Layer):
+
+    def __init__(self, name=None, **kwargs):
+        super(TopLeftPooling2D, self).__init__(name=name, **kwargs)
+
+    def call(self, inputs, *args, **kwargs):
+        return inputs[:, ::Spec.POOLING_STRIDE, ::Spec.POOLING_STRIDE, :]
+
+    def get_config(self):
+        return super(TopLeftPooling2D, self).get_config()
