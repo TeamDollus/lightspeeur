@@ -178,7 +178,14 @@ class ModelStageAdvisor:
 
             logger.info('Feed-forward model to record ReLU outputs')
             if isinstance(x, np.ndarray) or isinstance(x, tf.Tensor):
-                relu_caps = self.calibrate_relu_caps(x, relu_caps)
+                if batch_size is not None:
+                    length = tf.shape(x)[0]
+                    steps = length // batch_size
+                    for i in tqdm(range(steps)):
+                        batch = x[i * batch_size:min(length, (i + 1) * batch_size)]
+                        relu_caps = self.calibrate_relu_caps(batch, relu_caps)
+                else:
+                    relu_caps = self.calibrate_relu_caps(x, relu_caps)
             else:
                 if steps_per_epoch is None:
                     raise ValueError('steps_per_epoch cannot be None when the dataflow is iterator')

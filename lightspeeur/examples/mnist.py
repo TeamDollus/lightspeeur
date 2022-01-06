@@ -39,7 +39,7 @@ advisor = ModelStageAdvisor(chip_id=chip_id, model=model, compile_options=compil
 while True:
     res = advisor.advance_stage()
     if res:
-        advisor.propose(train_images, train_labels, epochs=1, validation_split=0.2)
+        advisor.propose(train_images, train_labels, epochs=1, validation_split=0.2, batch_size=64)
     else:
         break
 
