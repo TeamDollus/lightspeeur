@@ -80,7 +80,6 @@ outputs = x
 model = Model(inputs=inputs, outputs=outputs, name='mnist_conv')
 
 # Model Advisor
-chip_id = '2803'
 compile_options = {
   'optimizer': 'adam',
   'loss': 'sparse_categorical_crossentropy',
