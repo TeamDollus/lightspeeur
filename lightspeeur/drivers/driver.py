@@ -21,6 +21,7 @@ UNSIGNED_LONG_LONG = ctypes.c_ulonglong
 FLOAT = ctypes.c_float
 BYTE = ctypes.c_uint8
 VOID_ARRAY = ctypes.c_void_p
+BOOL = ctypes.c_bool
 
 logger = logging.getLogger('lightspeeur')
 logger.setLevel(logging.INFO)
@@ -52,13 +53,14 @@ Tensor._fields_ = TENSOR_FIELDS[0] if SDK_VERSION >= 5 else TENSOR_FIELDS[1]
 
 class Driver:
 
-    def __init__(self, binary_dir='bin'):
-        self.binary_dir = binary_dir
+    def __init__(self, library_path='bins/libGTILibrary.so', model_tools_path='bins/libmodeltools.so'):
+        self.library_path = library_path
+        self.model_tools_path = model_tools_path
 
     def __enter__(self):
         logger.info("Preparing libraries with SDK {}".format(SDK_VERSION))
-        self.library = ctypes.CDLL(os.path.join(self.binary_dir, 'libGTILibrary.so'))
-        self.model_tools = ctypes.CDLL(os.path.join(self.binary_dir, 'libmodeltools.so'))
+        self.library = ctypes.CDLL(self.library_path)
+        self.model_tools = ctypes.CDLL(self.model_tools_path)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.library = None

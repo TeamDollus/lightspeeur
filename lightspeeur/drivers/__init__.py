@@ -11,3 +11,6 @@ from lightspeeur.drivers.specification import UpSampleFillingMode
 from lightspeeur.drivers.utils import permute_axis
 from lightspeeur.drivers.utils import conversion_initializer
 from lightspeeur.drivers.utils import constant_initializer
+
+# configurer
+from lightspeeur.drivers.configurer import Configurer
