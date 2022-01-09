@@ -25,14 +25,16 @@ class Configurer:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.config_lib is not None:
-            self.config_lib.dlclose()
             del self.config_lib
 
     def configure(self):
+        if not os.path.exists(self.work_dir):
+            os.makedirs(self.work_dir, exist_ok=True)
+
         with open(self.data_file, 'r') as f:
             body = json.load(f)
 
-            models = body['models']
+            models = body['model']
             for model in models:
                 chip_id = model['ChipType']
                 if self.config_lib is not None:

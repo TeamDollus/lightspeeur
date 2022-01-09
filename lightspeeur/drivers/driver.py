@@ -53,7 +53,7 @@ Tensor._fields_ = TENSOR_FIELDS[0] if SDK_VERSION >= 5 else TENSOR_FIELDS[1]
 
 class Driver:
 
-    def __init__(self, library_path='bins/libGTILibrary.so', model_tools_path='bins/libmodeltools.so'):
+    def __init__(self, library_path='bin/libGTILibrary.so', model_tools_path='bin/libmodeltools.so'):
         self.library_path = library_path
         self.model_tools_path = model_tools_path
 
@@ -103,7 +103,7 @@ class Model:
         if len(buffer.shape) == 4:
             buffer = buffer.squeeze(axis=0)
         elif len(buffer.shape) != 3:
-            raise ValueError('Input dimension must be (height x width x channel) or (batch x height x width x channel)')
+            raise ValueError('Input dimension must be (height x width x channel) or (1 x height x width x channel)')
 
         height, width, channels = buffer.shape
         buffer = np.vstack(np.dsplit(buffer, channels))
