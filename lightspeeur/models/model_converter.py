@@ -108,7 +108,7 @@ class ModelConverter:
             bias = quantized_shift(bias, bit_shift)
 
             if self.debug:
-                logger.info('Layer: {}, {}'.format(layer_name, weights[0]))
+                logger.info('Layer: {}'.format(layer_name))
                 logger.info('max(abs(W)): {}, max(abs(B)): {}, shift: {}'
                             .format(np.amax(np.abs(kernel)),
                                     np.amax(np.abs(bias)),
