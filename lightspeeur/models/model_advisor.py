@@ -41,7 +41,11 @@ def stage_name(stage: LearningStage):
 QUANTIZABLE_CONVOLUTION = [Conv2D, Conv2DTranspose, DepthwiseConv2D]
 QUANTIZABLE_ACTIVATION = [ReLU]
 MODEL_FUSION_GROUPS = [[Conv2D, ReLU],
-                       [Conv2D, BatchNormalization, ReLU]]
+                       [Conv2D, BatchNormalization, ReLU],
+                       [Conv2DTranspose, ReLU],
+                       [Conv2DTranspose, BatchNormalization, ReLU],
+                       [DepthwiseConv2D, ReLU],
+                       [DepthwiseConv2D, BatchNormalization, ReLU]]
 
 logger = logging.getLogger('lightspeeur')
 logger.setLevel(logging.INFO)
