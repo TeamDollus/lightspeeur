@@ -46,9 +46,9 @@ class Tensor(ctypes.Structure):
 TENSOR_FIELDS = [
     [('width', INT), ('height', INT), ('depth', INT), ('stride', INT),
      ('buffer', VOID_ARRAY), ('customerBuffer', VOID_ARRAY), ('size', INT), ('format', INT),
-     ('tag', VOID_ARRAY), ('next', ctypes.POINTER(Tensor)),
+     ('tag', VOID_ARRAY), ('next', ctypes.POINTER(Tensor))],
 
-     ('width', INT), ('height', INT), ('depth', INT), ('stride', INT),
+    [('width', INT), ('height', INT), ('depth', INT), ('stride', INT),
      ('buffer', VOID_ARRAY), ('size', INT), ('format', INT)]
 ]
 Tensor._fields_ = TENSOR_FIELDS[0] if SDK_VERSION >= 5 else TENSOR_FIELDS[1]
