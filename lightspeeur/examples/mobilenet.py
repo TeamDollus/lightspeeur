@@ -200,37 +200,38 @@ if evaluate_model:
                            outputs=model.layers[-1].output,
                            name='MobileNetV1OffChip')
 
-    now = current_milliseconds()
-    driver = Driver(library_path=library_path)
-    lightspeeur_model = LightspeeurModel(driver, chip_id, result)
     samples = 5
 
     batch_images, batch_labels = valid_iter[0]
     classes = {v: k for k, v in valid_iter.class_indices.items()}
 
-    with lightspeeur_model:
-        print('Time elapsed for loading a model: {}ms'.format(current_milliseconds() - now))
+    for _ in range(samples):
+        sample_index = random.randint(0, len(batch_images))
 
-        for _ in range(samples):
+        sample_image = batch_images[sample_index]
+        sample_label = batch_labels[sample_index]
+
+        r, g, b = tf.split(sample_image, num_or_size_splits=3, axis=2)
+        sample_image = tf.concat([b, g, r], axis=2)
+        sample_image = tf.cast(sample_image, tf.uint8)
+
+        now = current_milliseconds()
+        driver = Driver(library_path=library_path, cache=True)
+        lightspeeur_model = LightspeeurModel(driver, chip_id, result)
+        with lightspeeur_model:
+            print('Time elapsed for loading a model: {}ms'.format(current_milliseconds() - now))
+
             now = current_milliseconds()
-            sample_index = random.randint(0, len(batch_images))
-
-            sample_image = batch_images[sample_index]
-            sample_label = batch_labels[sample_index]
-
-            r, g, b = tf.split(sample_image, num_or_size_splits=3, axis=2)
-            sample_image = tf.concat([b, g, r], axis=2)
-            sample_image = tf.cast(sample_image, tf.uint8)
             res = lightspeeur_model.evaluate(sample_image)
             print()
             print('Time elapsed for evaluate an image: {}ms'.format(current_milliseconds() - now))
 
-            now = current_milliseconds()
-            model_result = off_chip_model(res)
-            print()
+        now = current_milliseconds()
+        model_result = off_chip_model(res)
+        print()
 
-            predicted_index = np.argmax(model_result[0])
-            ground_truth_index = np.argmax(sample_label)
-            print('Predicated: \t{} ({} confidence)'.format(classes[predicted_index], model_result[0][predicted_index]))
-            print('Ground-truth: \t{}'.format(classes[ground_truth_index]))
-            print('Time elapsed for feed-forward off-chip model: {}ms'.format(current_milliseconds() - now))
+        predicted_index = np.argmax(model_result[0])
+        ground_truth_index = np.argmax(sample_label)
+        print('Predicated: \t{} ({} confidence)'.format(classes[predicted_index], model_result[0][predicted_index]))
+        print('Ground-truth: \t{}'.format(classes[ground_truth_index]))
+        print('Time elapsed for feed-forward off-chip model: {}ms'.format(current_milliseconds() - now))
