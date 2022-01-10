@@ -332,6 +332,7 @@ class ModelConverter:
 
             conv_included = False
             one_coefficients = []
+            excluded_layers = 0
             for layer_name in chunk:
                 layer = self.model.get_layer(layer_name)
                 if is_convolutional(layer):
@@ -360,6 +361,9 @@ class ModelConverter:
                     conv_included = True
                 elif is_pooling(layer):
                     layer_info['pooling'] = True
+                    excluded_layers += 1
+                else:
+                    excluded_layers += 1
             if not conv_included:
                 raise ValueError('Graph layer chunk must include at least one or more convolutional layers')
             if not input_channels:
@@ -369,7 +373,7 @@ class ModelConverter:
             if not image_size:
                 raise ValueError('Image size information is not valid')
 
-            num_sublayers = len(chunk)
+            num_sublayers = len(chunk) - excluded_layers
             layer_info['sublayer_number'] = num_sublayers
             if num_sublayers > 0:
                 layer_info['one_coef'] = one_coefficients
