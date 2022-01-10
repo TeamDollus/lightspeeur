@@ -15,3 +15,6 @@ from lightspeeur.layers.pooling import TopLeftPooling2D
 
 # Quantizable layers
 from lightspeeur.layers.quantization import QuantizableLayer
+
+# Constraints
+from lightspeeur.layers.constraints import ClippingBiasConstraint

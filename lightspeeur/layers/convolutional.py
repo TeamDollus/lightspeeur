@@ -4,6 +4,7 @@ from tensorflow.keras import layers
 from lightspeeur.drivers import Specification, UpSampleFillingMode
 from lightspeeur.drivers import conversion_initializer
 from lightspeeur.layers.quantization import compute_quantized_shift, quantize_kernel, quantized_shift, QuantizableLayer
+from lightspeeur.layers.constraints import ClippingBiasConstraint
 
 
 def pad_for_chip(inputs, strides, kernel_size):
@@ -55,6 +56,7 @@ class DepthwiseConv2D(QuantizableLayer):
                  bit_mask=None,
                  kernel_initializer=None,
                  bias_initializer=None,
+                 clip_bias=False,
                  trainable=True,
                  name=None,
                  **kwargs):
@@ -71,6 +73,7 @@ class DepthwiseConv2D(QuantizableLayer):
         self.strides = strides if type(strides) is tuple else tuple(strides)
         self.depth_multiplier = depth_multiplier
         self.use_bias = use_bias
+        self.clip_bias = clip_bias
         self.bit_mask = bit_mask
         self.chip_id = chip_id
         self.specification = Specification(self.chip_id)
@@ -89,11 +92,15 @@ class DepthwiseConv2D(QuantizableLayer):
                                                 trainable=True,
                                                 dtype=self.dtype)
         if self.use_bias:
+            if self.clip_bias:
+                constraint = ClippingBiasConstraint(self.depthwise_kernel)
+            else:
+                constraint = None
             self.bias = self.add_weight(name='bias',
                                         shape=(input_channel * self.depth_multiplier,),
                                         initializer=self.bias_initializer,
                                         regularizer=None,
-                                        constraint=None,
+                                        constraint=constraint,
                                         trainable=True,
                                         dtype=self.dtype)
         else:
@@ -130,6 +137,7 @@ class DepthwiseConv2D(QuantizableLayer):
             'use_bias': self.use_bias,
             'quantize': self.quantize,
             'bit_mask': self.bit_mask,
+            'clip_bias': self.clip_bias
         })
         return config
 
@@ -146,6 +154,7 @@ class Conv2D(QuantizableLayer):
                  bit_mask=None,
                  kernel_initializer=None,
                  bias_initializer=None,
+                 clip_bias=False,
                  trainable=True,
                  name=None,
                  **kwargs):
@@ -164,6 +173,7 @@ class Conv2D(QuantizableLayer):
         self.kernel_size = kernel_size if type(kernel_size) is tuple else tuple(kernel_size)
         self.strides = strides if type(strides) is tuple else tuple(strides)
         self.use_bias = use_bias
+        self.clip_bias = clip_bias
         self.bit_mask = bit_mask
         self.chip_id = chip_id
         self.specification = Specification(self.chip_id)
@@ -182,11 +192,15 @@ class Conv2D(QuantizableLayer):
                                       trainable=True,
                                       dtype=self.dtype)
         if self.use_bias:
+            if self.clip_bias:
+                constraint = ClippingBiasConstraint(self.kernel)
+            else:
+                constraint = None
             self.bias = self.add_weight(name='bias',
                                         shape=(self.filters,),
                                         initializer=self.bias_initializer,
                                         regularizer=None,
-                                        constraint=None,
+                                        constraint=constraint,
                                         trainable=True,
                                         dtype=self.dtype)
         else:
@@ -224,6 +238,7 @@ class Conv2D(QuantizableLayer):
             'quantize': self.quantize,
             'bit_mask': self.bit_mask,
             'chip_id': self.chip_id,
+            'clip_bias': self.clip_bias
         })
         return config
 
@@ -240,6 +255,7 @@ class Conv2DTranspose(Conv2D):
                  bit_mask=None,
                  kernel_initializer=None,
                  bias_initializer=None,
+                 clip_bias=False,
                  trainable=True,
                  name=None,
                  **kwargs):
@@ -252,6 +268,7 @@ class Conv2DTranspose(Conv2D):
                                               chip_id,
                                               kernel_initializer,
                                               bias_initializer,
+                                              clip_bias,
                                               trainable,
                                               name,
                                               **kwargs)

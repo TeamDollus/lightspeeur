@@ -157,7 +157,8 @@ class ModelStageAdvisor:
                 validation_freq=1,
                 max_queue_size=10,
                 workers=1,
-                use_multiprocessing=False):
+                use_multiprocessing=False,
+                clip_bias=False):
 
         # Checkpoints
         stage_dir = self.get_checkpoint_stage_dir(self.current_stage)
@@ -270,7 +271,8 @@ class ModelStageAdvisor:
                         # create a new conv layer
                         config = layer.get_config()
                         config.update({
-                            'use_bias': True
+                            'use_bias': True,
+                            'clip_bias': clip_bias
                         })
                         conv = layer.__class__.from_config(config)
                         rebuilt_layers.append(conv)
