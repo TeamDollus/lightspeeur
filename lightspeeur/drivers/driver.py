@@ -17,11 +17,14 @@ else:
 
 INT = ctypes.c_int
 CHAR_ARRAY = ctypes.c_char_p
+UNSIGNED_LONG = ctypes.c_ulong
 UNSIGNED_LONG_LONG = ctypes.c_ulonglong
 FLOAT = ctypes.c_float
 BYTE = ctypes.c_uint8
 VOID_ARRAY = ctypes.c_void_p
 BOOL = ctypes.c_bool
+
+BIT_SIZE = ctypes.sizeof(VOID_ARRAY)
 
 logger = logging.getLogger('lightspeeur')
 logger.setLevel(logging.INFO)
@@ -147,3 +150,17 @@ class Model:
     def version(self):
         cls = instance_signature(self.driver.library.GtiGetSDKVersion, return_type=CHAR_ARRAY)
         return cls()
+
+    def evaluate_image(self, image, height, width, depth):
+        if BIT_SIZE == 4:
+            # 32-bit machine
+            cls = instance_signature(self.driver.library.GtiImageEvaluate,
+                                     [UNSIGNED_LONG, CHAR_ARRAY, INT, INT, INT],
+                                     CHAR_ARRAY)
+        else:
+            # 64-bit machine
+            cls = instance_signature(self.driver.library.GtiImageEvaluate,
+                                     [UNSIGNED_LONG_LONG, CHAR_ARRAY, INT, INT, INT],
+                                     CHAR_ARRAY)
+
+        return cls(self.instance, image, height, width, depth)
