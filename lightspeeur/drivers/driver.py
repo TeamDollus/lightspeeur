@@ -56,18 +56,23 @@ Tensor._fields_ = TENSOR_FIELDS[0] if SDK_VERSION >= 5 else TENSOR_FIELDS[1]
 
 class Driver:
 
-    def __init__(self, library_path='bin/libGTILibrary.so', model_tools_path='bin/libmodeltools.so'):
+    def __init__(self, library_path='bin/libGTILibrary.so', model_tools_path='bin/libmodeltools.so', cache=True):
         self.library_path = library_path
         self.model_tools_path = model_tools_path
-
-    def __enter__(self):
-        logger.info("Preparing libraries with SDK {}".format(SDK_VERSION))
-        self.library = ctypes.CDLL(self.library_path)
-        self.model_tools = ctypes.CDLL(self.model_tools_path)
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cache = cache
         self.library = None
         self.model_tools = None
+
+    def __enter__(self):
+        if self.library is None and self.model_tools is None:
+            logger.info("Preparing libraries with SDK {}".format(SDK_VERSION))
+            self.library = ctypes.CDLL(self.library_path)
+            self.model_tools = ctypes.CDLL(self.model_tools_path)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.cache:
+            self.library = None
+            self.model_tools = None
 
     def compose(self, json_path: str, model_path: str):
         cls = instance_signature(self.model_tools.GtiComposeModelFile, [CHAR_ARRAY, CHAR_ARRAY])

@@ -9,6 +9,9 @@ class UpSampleFillingMode(Enum):
     ZERO = 2
 
 
+SPEC_INFO = None
+
+
 class Specification:
 
     DEFAULT_IMAGE_SIZE = 224
@@ -35,15 +38,15 @@ class Specification:
     RELU_CAP_10BITS = 31.96875
 
     def __init__(self, chip_id):
-        spec_path = os.path.join(os.path.dirname(__file__), 'specs', f'{chip_id}_spec.json')
-
         self.chip_id = str(chip_id)
-        self.spec_path = os.path.realpath(spec_path)
 
-        with open(self.spec_path, 'r') as f:
-            info = json.load(f)
-
-        self.info = info
+        global SPEC_INFO
+        if SPEC_INFO is None:
+            spec_path = os.path.join(os.path.dirname(__file__), 'specs', f'{chip_id}_spec.json')
+            with open(os.path.realpath(spec_path), 'r') as f:
+                info = json.load(f)
+            SPEC_INFO = info
+        self.info = SPEC_INFO
 
     def get_info(self):
         return self.info
