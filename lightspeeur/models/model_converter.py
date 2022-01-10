@@ -321,6 +321,8 @@ class ModelConverter:
         for major_index, chunk in enumerate(small_graph):
             layer_info = {}
             conv_included = False
+            depthwise_conv_included = False
+            one_coefficients = []
             for layer_name in chunk:
                 layer = self.model.get_layer(layer_name)
                 if is_convolutional(layer):
@@ -332,17 +334,23 @@ class ModelConverter:
 
                     if isinstance(layer, DepthwiseConv2D):
                         layer_info['depth_enable'] = True
+                        depthwise_conv_included = True
 
                     if isinstance(layer, Conv2DTranspose):
                         layer_info['upsample_enable'] = True
+
+                    one_coefficients.append(1 if layer.kernel_size == (1, 1) else 0)
 
                     conv_included = True
                 elif is_pooling(layer):
                     layer_info['pooling'] = True
             if not conv_included:
                 raise ValueError('Graph layer chunk must include at least one or more convolutional layers')
-            layer_info['sublayer_number'] = len(chunk) - 1  # exclude one conv layer
-            layer_info['one_coef'] = []
+
+            num_sublayers = len(chunk)
+            layer_info['sublayer_number'] = num_sublayers
+            if depthwise_conv_included and num_sublayers > 0:
+                layer_info['one_coef'] = one_coefficients
             layers.append(layer_info)
 
         body = {
