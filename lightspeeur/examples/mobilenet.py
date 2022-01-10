@@ -1,3 +1,4 @@
+import os
 import time
 import random
 
@@ -11,6 +12,16 @@ from lightspeeur.layers import DepthwiseConv2D, Conv2D, ReLU
 from lightspeeur.models import ModelStageAdvisor, ModelConverter
 from lightspeeur.drivers import Driver, Model as LightspeeurModel, Specification
 
+SDK_VERSION_ENV_PARAM = os.environ.get('SDK_VERSION')
+if SDK_VERSION_ENV_PARAM is not None:
+    SDK_VERSION = int(SDK_VERSION_ENV_PARAM)
+else:
+    SDK_VERSION = 5
+
+if SDK_VERSION >= 5:
+    library_path = 'bin/libGTILibrary.so'
+else:
+    library_path = 'bin/libGTILibrary.so.4.5.1.0.5795ef42'
 
 chip_id = '2803'
 spec = Specification(chip_id)
@@ -166,7 +177,7 @@ if convert_model:
             chunk.append(layer.name)
     graph.append(chunk)
 
-    driver = Driver()
+    driver = Driver(library_path=library_path)
     converter = ModelConverter(chip_id=chip_id,
                                model=model,
                                graph={
@@ -185,7 +196,7 @@ else:
 # Evaluate
 if evaluate_model:
     now = current_milliseconds()
-    driver = Driver()
+    driver = Driver(library_path=library_path)
     lightspeeur_model = LightspeeurModel(driver, chip_id, result)
     samples = 5
 
