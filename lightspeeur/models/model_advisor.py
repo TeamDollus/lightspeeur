@@ -251,7 +251,9 @@ class ModelStageAdvisor:
                         else:
                             prev_relu_cap = prev_relu_layers[-1].cap
 
-                        kernel, bias = self.fuse_layers(conv, prev_relu_cap, relu, batch_normalization)
+                        kernel, bias = self.fuse_convolutional_and_batch_norm(conv,
+                                                                              prev_relu_cap,
+                                                                              relu, batch_normalization)
                         fused_conv_layers[conv.name] = (kernel, bias)
                         fused_relu_layers[relu.name] = self.specification.max_activation(relu.activation_bits)
 
@@ -341,11 +343,11 @@ class ModelStageAdvisor:
     def get_checkpoint_stage_dir(self, stage):
         return os.path.join(self.checkpoints_dir, 'stage-{}'.format(stage.value))
 
-    def fuse_layers(self,
-                    conv: Layer,
-                    prev_relu_cap,
-                    relu: ReLU,
-                    batch_normalization=None):
+    def fuse_convolutional_and_batch_norm(self,
+                                          conv: Layer,
+                                          prev_relu_cap,
+                                          relu: ReLU,
+                                          batch_normalization=None):
         if batch_normalization is not None and not isinstance(batch_normalization, BatchNormalization):
             raise AttributeError('batch_normalization must be BatchNormalization')
 
