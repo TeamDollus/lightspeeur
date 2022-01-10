@@ -319,38 +319,62 @@ class ModelConverter:
     def create_default_model_data(self, data_file, small_graph):
         layers = []
         for major_index, chunk in enumerate(small_graph):
-            layer_info = {}
+            layer_info = {
+                'major_layer': major_index + 1
+            }
+
+            input_channels = None
+            output_channels = None
+            image_size = None
+            coef_bits = None
+
             conv_included = False
-            depthwise_conv_included = False
             one_coefficients = []
             for layer_name in chunk:
                 layer = self.model.get_layer(layer_name)
                 if is_convolutional(layer):
-                    layer_info['coef_bits'] = layer.bit_mask
-                    layer_info['major_layer'] = major_index + 1
-                    layer_info['image_size'] = layer.input.shape[1]
-                    layer_info['input_channels'] = layer.input.shape[-1]
-                    layer_info['output_channels'] = layer.output.shape[-1]
+                    if input_channels is None:
+                        input_channels = layer.input.shape[-1]
+                    output_channels = layer.output.shape[-1]
+
+                    layer_image_size = layer.input.shape[1]
+                    if image_size is None:
+                        image_size = layer_image_size
+                    elif image_size != layer_image_size:
+                        raise ValueError('All graph chunk must have same image size. {} != {}'
+                                         .format(image_size, layer_image_size))
+
+                    if coef_bits is None:
+                        coef_bits = layer.bit_mask
+                    elif coef_bits != layer.bit_mask:
+                        raise ValueError('All graph chunk must have same coefficients bit size: {} != {}'
+                                         .format(coef_bits, layer.bit_mask))
 
                     if isinstance(layer, DepthwiseConv2D):
                         layer_info['depth_enable'] = True
-                        depthwise_conv_included = True
-
                     if isinstance(layer, Conv2DTranspose):
                         layer_info['upsample_enable'] = True
-
                     one_coefficients.append(1 if layer.kernel_size == (1, 1) else 0)
-
                     conv_included = True
                 elif is_pooling(layer):
                     layer_info['pooling'] = True
             if not conv_included:
                 raise ValueError('Graph layer chunk must include at least one or more convolutional layers')
+            if not input_channels:
+                raise ValueError('Input channel information is not valid')
+            if not output_channels:
+                raise ValueError('Output channel information is not valid')
+            if not image_size:
+                raise ValueError('Image size information is not valid')
 
             num_sublayers = len(chunk)
             layer_info['sublayer_number'] = num_sublayers
-            if depthwise_conv_included and num_sublayers > 0:
+            if num_sublayers > 0:
                 layer_info['one_coef'] = one_coefficients
+            layer_info['input_channels'] = input_channels
+            layer_info['output_channels'] = output_channels
+            layer_info['image_size'] = image_size
+            layer_info['coef_bits'] = coef_bits
             layers.append(layer_info)
 
         body = {
