@@ -17,10 +17,14 @@ else:
 
 INT = ctypes.c_int
 CHAR_ARRAY = ctypes.c_char_p
+UNSIGNED_LONG = ctypes.c_ulong
 UNSIGNED_LONG_LONG = ctypes.c_ulonglong
 FLOAT = ctypes.c_float
 BYTE = ctypes.c_uint8
 VOID_ARRAY = ctypes.c_void_p
+BOOL = ctypes.c_bool
+
+BIT_SIZE = ctypes.sizeof(VOID_ARRAY)
 
 logger = logging.getLogger('lightspeeur')
 logger.setLevel(logging.INFO)
@@ -52,13 +56,14 @@ Tensor._fields_ = TENSOR_FIELDS[0] if SDK_VERSION >= 5 else TENSOR_FIELDS[1]
 
 class Driver:
 
-    def __init__(self, binary_dir='bin'):
-        self.binary_dir = binary_dir
+    def __init__(self, library_path='bin/libGTILibrary.so', model_tools_path='bin/libmodeltools.so'):
+        self.library_path = library_path
+        self.model_tools_path = model_tools_path
 
     def __enter__(self):
         logger.info("Preparing libraries with SDK {}".format(SDK_VERSION))
-        self.library = ctypes.CDLL(os.path.join(self.binary_dir, 'libGTILibrary.so'))
-        self.model_tools = ctypes.CDLL(os.path.join(self.binary_dir, 'libmodeltools.so'))
+        self.library = ctypes.CDLL(self.library_path)
+        self.model_tools = ctypes.CDLL(self.model_tools_path)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.library = None
@@ -101,7 +106,7 @@ class Model:
         if len(buffer.shape) == 4:
             buffer = buffer.squeeze(axis=0)
         elif len(buffer.shape) != 3:
-            raise ValueError('Input dimension must be (height x width x channel) or (batch x height x width x channel)')
+            raise ValueError('Input dimension must be (height x width x channel) or (1 x height x width x channel)')
 
         height, width, channels = buffer.shape
         buffer = np.vstack(np.dsplit(buffer, channels))
@@ -145,3 +150,17 @@ class Model:
     def version(self):
         cls = instance_signature(self.driver.library.GtiGetSDKVersion, return_type=CHAR_ARRAY)
         return cls()
+
+    def evaluate_image(self, image, height, width, depth):
+        if BIT_SIZE == 4:
+            # 32-bit machine
+            cls = instance_signature(self.driver.library.GtiImageEvaluate,
+                                     [UNSIGNED_LONG, CHAR_ARRAY, INT, INT, INT],
+                                     CHAR_ARRAY)
+        else:
+            # 64-bit machine
+            cls = instance_signature(self.driver.library.GtiImageEvaluate,
+                                     [UNSIGNED_LONG_LONG, CHAR_ARRAY, INT, INT, INT],
+                                     CHAR_ARRAY)
+
+        return cls(self.instance, image, height, width, depth)
