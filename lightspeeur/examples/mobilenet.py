@@ -9,7 +9,11 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dense as KerasDense, Flatten, BatchNormalization, Input
 from lightspeeur.layers import DepthwiseConv2D, Conv2D, ReLU
 from lightspeeur.models import ModelStageAdvisor, ModelConverter
-from lightspeeur.drivers import Driver, Model as LightspeeurModel
+from lightspeeur.drivers import Driver, Model as LightspeeurModel, Specification
+
+
+chip_id = '2803'
+spec = Specification(chip_id)
 
 
 def current_milliseconds():
@@ -18,15 +22,28 @@ def current_milliseconds():
 
 transfer_model = True
 train_model = True
+convert_model = True
 evaluate_model = False
 
-train_datagen = ImageDataGenerator(rescale=1 / 255.)
-valid_datagen = ImageDataGenerator(rescale=1 / 255.)
+
+def truncate_for_chip(img):
+    # [0, 255] -> [0, 31]
+    # truncate: ((x >> 2) + 1) >> 1
+    img = tf.cast(img, tf.uint8)
+    img = tf.bitwise.right_shift(img, tf.ones_like(img) * 2)
+    img = img + 1
+    img = tf.bitwise.right_shift(img, tf.ones_like(img))
+    img = tf.cast(img, tf.float32)
+    img = tf.clip_by_value(img, 0, spec.max_activation())
+    return img
+
+
+train_datagen = ImageDataGenerator(preprocessing_function=truncate_for_chip)
+valid_datagen = ImageDataGenerator(preprocessing_function=truncate_for_chip)
 
 train_iter = train_datagen.flow_from_directory('dataset/train', target_size=(224, 224), batch_size=64)
 valid_iter = valid_datagen.flow_from_directory('dataset/valid', target_size=(224, 224), batch_size=64)
 
-chip_id = '2803'
 DepthwiseConvBlock = namedtuple("DepthwiseConvBlock", ["name", "stride", "in_channels", "out_channels"])
 MOBILENET_DEPTHWISE_CONV_LAYERS = [
     DepthwiseConvBlock(name="conv2_1", stride=1, in_channels=32, out_channels=64),
@@ -125,40 +142,43 @@ else:
 
 
 # Conversion
-now = current_milliseconds()
-graph_name = 'mobilenet'
+if convert_model:
+    now = current_milliseconds()
+    graph_name = 'mobilenet'
 
-last_image_size = None
-graph = []
-chunk = []
-for layer in model.layers:
-    if isinstance(layer, Conv2D) or isinstance(layer, DepthwiseConv2D):
-        current_image_size = layer.input.shape[1]
-        if last_image_size is None:
-            chunk.append(layer.name)
+    last_image_size = None
+    graph = []
+    chunk = []
+    for layer in model.layers:
+        if isinstance(layer, Conv2D) or isinstance(layer, DepthwiseConv2D):
+            current_image_size = layer.input.shape[1]
+            if last_image_size is None:
+                chunk.append(layer.name)
+                last_image_size = current_image_size
+                continue
+
+            if last_image_size != current_image_size:
+                graph.append(chunk)
+                chunk = []
+
             last_image_size = current_image_size
-            continue
+            chunk.append(layer.name)
+    graph.append(chunk)
 
-        if last_image_size != current_image_size:
-            graph.append(chunk)
-            chunk = []
+    driver = Driver()
+    converter = ModelConverter(chip_id=chip_id,
+                               model=model,
+                               graph={
+                                   graph_name: graph
+                               },
+                               config_path='bin/libgticonfig2803.so',
+                               debug=True)
 
-        last_image_size = current_image_size
-        chunk.append(layer.name)
-graph.append(chunk)
-
-driver = Driver()
-converter = ModelConverter(chip_id=chip_id,
-                           model=model,
-                           graph={
-                               graph_name: graph
-                           },
-                           config_path='bin/libgticonfig2803.so',
-                           debug=True)
-
-results = converter.convert(driver)
-result = results[0]
-print('Time elapsed for conversion: {}ms'.format(current_milliseconds() - now))
+    results = converter.convert(driver)
+    result = results[0]
+    print('Time elapsed for conversion: {}ms'.format(current_milliseconds() - now))
+else:
+    result = 'mobilenet_target/mobilenet.model'
 
 
 # Evaluate
@@ -180,6 +200,9 @@ if evaluate_model:
             sample_image = batch_images[sample_index]
             sample_label = batch_labels[sample_index]
 
+            r, g, b = tf.split(sample_image, num_or_size_splits=3, axis=2)
+            sample_image = tf.concat([b, g, r], axis=2)
+            sample_image = tf.cast(sample_image, tf.uint8)
             res = lightspeeur_model.evaluate(sample_image)
             print()
             print('Time elapsed for evaluate an image: {}ms'.format(current_milliseconds() - now))
