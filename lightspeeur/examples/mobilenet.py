@@ -121,19 +121,31 @@ else:
         'DepthwiseConv2D': DepthwiseConv2D,
         'ReLU': ReLU
     }
-    model = tf.keras.models.load_model('lightspeeur_mnist.h5', custom_objects=custom_objects)
+    model = tf.keras.models.load_model('lightspeeur_mobilenet.h5', custom_objects=custom_objects)
 
 
 # Conversion
 now = current_milliseconds()
 graph_name = 'mobilenet'
 
-graph = [['conv1_1/conv', 'conv1_1']]
-for conv in MOBILENET_DEPTHWISE_CONV_LAYERS:
-    conv_name_depthwise = '{}_dw'.format(conv.name)
-    conv_name_pointwise = '{}_pw'.format(conv.name)
-    graph.append(['{}/conv'.format(conv_name_depthwise), conv_name_depthwise])
-    graph.append(['{}/conv'.format(conv_name_depthwise), conv_name_pointwise])
+last_image_size = None
+graph = []
+chunk = []
+for layer in model.layers:
+    if isinstance(layer, Conv2D) or isinstance(layer, DepthwiseConv2D):
+        current_image_size = layer.input.shape[1]
+        if last_image_size is None:
+            chunk.append(layer.name)
+            last_image_size = current_image_size
+            continue
+
+        if last_image_size != current_image_size:
+            graph.append(chunk)
+            chunk = []
+
+        last_image_size = current_image_size
+        chunk.append(layer.name)
+graph.append(chunk)
 
 driver = Driver()
 converter = ModelConverter(chip_id=chip_id,
