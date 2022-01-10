@@ -27,6 +27,9 @@ class Configurer:
         if self.config_lib is not None:
             del self.config_lib
 
+    def get_work_dir(self):
+        return self.work_dir
+
     def configure(self):
         if not os.path.exists(self.work_dir):
             os.makedirs(self.work_dir, exist_ok=True)

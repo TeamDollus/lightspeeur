@@ -158,6 +158,8 @@ class ModelConverter:
                         'filter': kernels_filepath,
                         'bias': biases_filepath
                     })
+
+                    self.working_files.append(configurer.get_work_dir())
         return data_info
 
     def update_model_data(self, data_file, dst_data_file, new_shifts, small_graph=None):
