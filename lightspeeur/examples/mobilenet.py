@@ -126,7 +126,8 @@ if train_model:
             advisor.propose(train_iter,
                             epochs=10,
                             validation_data=valid_iter,
-                            steps_per_epoch=train_iter.samples // train_iter.batch_size)
+                            steps_per_epoch=train_iter.samples // train_iter.batch_size,
+                            clip_bias=True)
         else:
             break
 
