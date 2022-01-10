@@ -252,6 +252,7 @@ pip-selfcheck.json
 dataset
 mobilenet_ckpt
 lightspeeur_mnist.h5
+lightspeeur_mobilenet.h5
 checkpoint_loader.py
 
 # End of https://www.toptal.com/developers/gitignore/api/pycharm+all,python,virtualenv
