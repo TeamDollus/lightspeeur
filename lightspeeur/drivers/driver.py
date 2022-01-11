@@ -64,9 +64,11 @@ class Driver:
         self.model_tools = None
 
     def __enter__(self):
-        if self.library is None and self.model_tools is None:
+        if self.library is None and self.library_path is not None:
             logger.info("Preparing libraries with SDK {}".format(SDK_VERSION))
             self.library = ctypes.CDLL(self.library_path)
+
+        if self.model_tools is None and self.model_tools_path is not None:
             self.model_tools = ctypes.CDLL(self.model_tools_path)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -75,6 +77,9 @@ class Driver:
             self.model_tools = None
 
     def compose(self, json_path: str, model_path: str):
+        if self.model_tools is None:
+            raise ValueError('Model tools is not loaded.')
+
         cls = instance_signature(self.model_tools.GtiComposeModelFile, [CHAR_ARRAY, CHAR_ARRAY])
         return cls(json_path.encode('ascii'), model_path.encode('ascii'))
 
