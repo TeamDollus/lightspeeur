@@ -72,7 +72,7 @@ class Driver:
             self.model_tools = ctypes.CDLL(self.model_tools_path)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.cache:
+        if not self.cache:
             self.library = None
             self.model_tools = None
 
