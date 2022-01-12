@@ -8,7 +8,7 @@ import tensorflow as tf
 
 from enum import Enum
 from tqdm import tqdm
-from tensorflow.keras import Model
+from tensorflow.keras import Model, backend as K
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.layers import BatchNormalization, Layer, InputLayer
 from lightspeeur.layers import Conv2D, Conv2DTranspose, DepthwiseConv2D, ReLU
@@ -186,7 +186,7 @@ class ModelStageAdvisor:
                 if batch_size is not None:
                     length = tf.shape(x)[0]
                     steps = length // batch_size
-                    for i in tqdm(range(steps)):
+                    for i in tqdm(range(int(steps))):
                         batch = x[i * batch_size:min(length, (i + 1) * batch_size)]
                         relu_caps = self.calibrate_relu_caps(batch, relu_caps)
                 else:
@@ -196,11 +196,11 @@ class ModelStageAdvisor:
                     raise ValueError('steps_per_epoch cannot be None when the dataflow is iterator')
 
                 if inspect.isgeneratorfunction(x):
-                    for value in tqdm(x, total=steps_per_epoch):
+                    for value in tqdm(x, total=int(steps_per_epoch)):
                         inputs, _ = value
                         relu_caps = self.calibrate_relu_caps(inputs, relu_caps)
                 elif hasattr(x, '__getitem__'):
-                    for i in tqdm(range(steps_per_epoch)):
+                    for i in tqdm(range(int(steps_per_epoch))):
                         inputs, _ = x[i]
                         relu_caps = self.calibrate_relu_caps(inputs, relu_caps)
                 else:
@@ -323,16 +323,20 @@ class ModelStageAdvisor:
 
     def calibrate_relu_caps(self, inputs, initial_relu_caps):
         # Feed-forward to record outputs
-        outputs = inputs
+        test_cases = []
         for layer in self.model.layers:
-            outputs = layer(outputs)
-
             if isinstance(layer, ReLU):
-                cap = np.percentile(outputs.numpy(), 99)
-                if cap <= initial_relu_caps[layer.name]:
-                    continue
+                test_case = K.function(inputs=self.model.layers[0].input,
+                                       outputs=layer.output)
+                test_cases.append((test_case, layer.name))
 
-                initial_relu_caps[layer.name] = cap
+        for test_case, layer_name in test_cases:
+            outputs = test_case(inputs)
+            cap = np.percentile(outputs, 99)
+            if cap <= initial_relu_caps[layer_name]:
+                continue
+
+            initial_relu_caps[layer_name] = cap
 
         return initial_relu_caps
 
