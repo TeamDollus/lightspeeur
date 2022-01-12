@@ -239,6 +239,7 @@ class ModelStageAdvisor:
             if is_model_fusion:
                 fused_conv_layers = {}
                 fused_relu_layers = {}
+                popped_layers = []
                 num_fusing_layers = 0
                 length = len(self.model.layers)
                 for group in MODEL_FUSION_GROUPS:
@@ -257,6 +258,7 @@ class ModelStageAdvisor:
 
                         if len(group) == 3:
                             batch_normalization = self.model.get_layer(index=i + 1)
+                            popped_layers.append(batch_normalization)
                         else:
                             batch_normalization = None
 
@@ -279,10 +281,8 @@ class ModelStageAdvisor:
                 logger.info('{} layer groups will be fused.'.format(num_fusing_layers))
                 
                 rebuilt_layers = []
-                popped_layers = []
                 for layer in self.model.layers:
                     if isinstance(layer, BatchNormalization):
-                        popped_layers.append(layer)
                         continue
 
                     if layer.name in fused_conv_layers:
@@ -293,7 +293,10 @@ class ModelStageAdvisor:
                             'clip_bias': clip_bias
                         })
                         conv = layer.__class__.from_config(config)
-                        organize_layer(conv, [inbound_layer.output for inbound_layer in get_inbound_layers(layer)])
+
+                        inbound_outputs_map = {inbound_layer.name: [inbound_layer.output]
+                                               for inbound_layer in get_inbound_layers(layer)}
+                        organize_layer(conv, inbound_outputs_map, popped_layers, force=True)
                         rebuilt_layers.append(conv)
                     else:
                         rebuilt_layers.append(layer)
