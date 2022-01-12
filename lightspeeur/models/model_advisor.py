@@ -181,6 +181,13 @@ class ModelStageAdvisor:
             relus = [layer for layer in self.model.layers if isinstance(layer, ReLU)]
             relu_caps = {layer.name: 0.0 for layer in relus}
 
+            test_cases = []
+            for layer in self.model.layers:
+                if isinstance(layer, ReLU):
+                    test_case = K.function(inputs=self.model.layers[0].input,
+                                           outputs=layer.output)
+                    test_cases.append((test_case, layer.name))
+
             logger.info('Feed-forward model to record ReLU outputs')
             if isinstance(x, np.ndarray) or isinstance(x, tf.Tensor):
                 if batch_size is not None:
@@ -188,9 +195,9 @@ class ModelStageAdvisor:
                     steps = length // batch_size
                     for i in tqdm(range(int(steps))):
                         batch = x[i * batch_size:min(length, (i + 1) * batch_size)]
-                        relu_caps = self.calibrate_relu_caps(batch, relu_caps)
+                        relu_caps = self.calibrate_relu_caps(batch, relu_caps, test_cases)
                 else:
-                    relu_caps = self.calibrate_relu_caps(x, relu_caps)
+                    relu_caps = self.calibrate_relu_caps(x, relu_caps, test_cases)
             else:
                 if steps_per_epoch is None:
                     raise ValueError('steps_per_epoch cannot be None when the dataflow is iterator')
@@ -198,11 +205,11 @@ class ModelStageAdvisor:
                 if inspect.isgeneratorfunction(x):
                     for value in tqdm(x, total=int(steps_per_epoch)):
                         inputs, _ = value
-                        relu_caps = self.calibrate_relu_caps(inputs, relu_caps)
+                        relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
                 elif hasattr(x, '__getitem__'):
                     for i in tqdm(range(int(steps_per_epoch))):
                         inputs, _ = x[i]
-                        relu_caps = self.calibrate_relu_caps(inputs, relu_caps)
+                        relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
                 else:
                     raise ValueError('It is exceptional case to calibrate ReLU caps')
 
@@ -321,15 +328,8 @@ class ModelStageAdvisor:
                      validation_steps, validation_batch_size, validation_freq,
                      max_queue_size, workers, use_multiprocessing)
 
-    def calibrate_relu_caps(self, inputs, initial_relu_caps):
+    def calibrate_relu_caps(self, inputs, initial_relu_caps, test_cases):
         # Feed-forward to record outputs
-        test_cases = []
-        for layer in self.model.layers:
-            if isinstance(layer, ReLU):
-                test_case = K.function(inputs=self.model.layers[0].input,
-                                       outputs=layer.output)
-                test_cases.append((test_case, layer.name))
-
         for test_case, layer_name in test_cases:
             outputs = test_case(inputs)
             cap = np.percentile(outputs, 99)
