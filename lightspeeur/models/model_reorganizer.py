@@ -32,6 +32,18 @@ def check_popped_layer_and_get(layer, popped_layers):
     return None
 
 
+def check_tensor(value):
+    if tf.is_tensor(value):
+        return True
+
+    if isinstance(value, (list, tuple)):
+        for element in value:
+            checked = check_tensor(element)
+            if checked:
+                return True
+    return False
+
+
 def organize_layer(layer, inputs):
     # unwrap array performed from the reorganizer
     args = []
@@ -39,7 +51,7 @@ def organize_layer(layer, inputs):
     if len(layer.inbound_nodes) > 0:
         node = layer.inbound_nodes[0]
         for arg in node.call_args:
-            if tf.is_tensor(arg):
+            if check_tensor(arg):
                 continue
             args.append(arg)
         kwargs = node.call_kwargs
