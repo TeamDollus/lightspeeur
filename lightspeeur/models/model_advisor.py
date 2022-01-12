@@ -385,23 +385,6 @@ class ModelStageAdvisor:
             kernel = conv_weights[0]
             bias = tf.zeros((kernel.shape[-1],))
 
-        # if len(conv_weights) == 2 or batch_normalization is None:
-        #     # already fused
-        #     kernel, bias = conv_weights
-        # else:
-        #     # Fuse batch normalization
-        #     kernel = conv_weights[0]
-        #     batch_gamma, batch_beta, batch_moving_mean, batch_moving_variance = batch_normalization.get_weights()
-        #     eps = batch_normalization.epsilon
-        #     std = np.sqrt(batch_moving_variance + eps)
-        #     factor = batch_gamma / std
-        #
-        #     if isinstance(conv, DepthwiseConv2D):
-        #         factor = factor.reshape((1, 1, factor.shape[0], 1))
-        #
-        #     kernel *= factor
-        #     bias = batch_beta - batch_gamma / std * batch_moving_mean
-
         # Fuse using ReLU caps
         current_relu_cap = relu.cap
         max_activation = self.specification.max_activation(bits=relu.activation_bits)
