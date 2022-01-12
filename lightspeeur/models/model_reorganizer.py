@@ -1,4 +1,5 @@
 from tensorflow.keras import Model
+from tensorflow.keras.layers import InputLayer
 
 
 def get_inbound_layers(layer):
@@ -19,7 +20,7 @@ def get_inbound_layers(layer):
 
 def is_input_layer(layer):
     inbound_layers = get_inbound_layers(layer)
-    return len(inbound_layers) == 0
+    return len(inbound_layers) == 0 and isinstance(layer, InputLayer)
 
 
 def check_popped_layer_and_get(layer, popped_layers):
