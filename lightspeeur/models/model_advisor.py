@@ -369,24 +369,16 @@ class ModelStageAdvisor:
 
         conv_weights = conv.get_weights()
         if batch_normalization is not None:
-            w_conv = conv_weights[0]
+            kernel = conv_weights[0]
             if len(conv_weights) == 2:
-                w_bias = conv_weights[1]
+                bias = conv_weights[1]
             else:
-                w_bias = tf.zeros_like(w_conv)
+                bias = tf.zeros_like(kernel)
 
             gamma, beta, mean, variance = batch_normalization.get_weights()
-            eps = batch_normalization.epsilon
-            if isinstance(conv, DepthwiseConv2D):
-                gamma = gamma.reshape((1, 1, gamma.shape[0], 1))
-                variance = variance.reshape((1, 1, variance.shape[0], 1))
-            else:
-                gamma = gamma.reshape((1, 1, 1, gamma.shape[0]))
-                variance = variance.reshape((1, 1, 1, variance.shape[0]))
 
-            std = np.sqrt(variance + eps)
-            kernel = w_conv * gamma / std
-            bias = beta + (w_bias - mean) * gamma / std
+            kernel = gamma * kernel / variance
+            bias = gamma * (bias - mean) / variance + beta
         elif len(conv_weights) == 2:
             kernel, bias = conv_weights
         else:
