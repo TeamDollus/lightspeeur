@@ -373,7 +373,7 @@ class ModelStageAdvisor:
             if len(conv_weights) == 2:
                 bias = conv_weights[1]
             else:
-                bias = tf.zeros_like(kernel)
+                bias = tf.zeros((kernel.shape[-1],))
 
             gamma, beta, mean, variance = batch_normalization.get_weights()
 
@@ -383,7 +383,7 @@ class ModelStageAdvisor:
             kernel, bias = conv_weights
         else:
             kernel = conv_weights[0]
-            bias = tf.zeros_like(kernel)
+            bias = tf.zeros((kernel.shape[-1],))
 
         # if len(conv_weights) == 2 or batch_normalization is None:
         #     # already fused
