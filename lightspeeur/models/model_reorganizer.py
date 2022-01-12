@@ -31,10 +31,11 @@ def check_popped_layer_and_get(layer, popped_layers):
 
 def organize_layer(layer, inputs):
     # unwrap array performed from the reorganizer
+    node = layer.inbound_nodes[0]
     if len(inputs) == 1:
-        return layer(inputs[0])
+        return layer(inputs[0], **node.call_kwargs)
     else:
-        return layer(inputs)
+        return layer(inputs, **node.call_kwargs)
 
 
 def flatten_inbound_popped_layers(layer, popped_layers):
