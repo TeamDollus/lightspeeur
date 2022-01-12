@@ -368,22 +368,47 @@ class ModelStageAdvisor:
             raise AttributeError('batch_normalization must be BatchNormalization')
 
         conv_weights = conv.get_weights()
-        if len(conv_weights) == 2 or batch_normalization is None:
-            # already fused
+        if batch_normalization is not None:
+            w_conv = conv_weights[0]
+            if len(conv_weights) == 2:
+                w_bias = conv_weights[1]
+            else:
+                w_bias = tf.zeros_like(w_conv)
+
+            gamma, beta, mean, variance = batch_normalization.get_weights()
+            eps = batch_normalization.epsilon
+            if isinstance(conv, DepthwiseConv2D):
+                gamma = gamma.reshape((1, 1, gamma.shape[0], 1))
+                variance = variance.reshape((1, 1, variance.shape[0], 1))
+            else:
+                gamma = gamma.reshape((1, 1, 1, gamma.shape[0]))
+                variance = variance.reshape((1, 1, 1, variance.shape[0]))
+
+            std = np.sqrt(variance + eps)
+            kernel = w_conv * gamma / std
+            bias = beta + (w_bias - mean) * gamma / std
+        elif len(conv_weights) == 2:
             kernel, bias = conv_weights
         else:
-            # Fuse batch normalization
             kernel = conv_weights[0]
-            batch_gamma, batch_beta, batch_moving_mean, batch_moving_variance = batch_normalization.get_weights()
-            eps = batch_normalization.epsilon
-            std = np.sqrt(batch_moving_variance + eps)
-            factor = batch_gamma / std
+            bias = tf.zeros_like(kernel)
 
-            if isinstance(conv, DepthwiseConv2D):
-                factor = factor.reshape((1, 1, factor.shape[0], 1))
-
-            kernel *= factor
-            bias = batch_beta - batch_gamma / std * batch_moving_mean
+        # if len(conv_weights) == 2 or batch_normalization is None:
+        #     # already fused
+        #     kernel, bias = conv_weights
+        # else:
+        #     # Fuse batch normalization
+        #     kernel = conv_weights[0]
+        #     batch_gamma, batch_beta, batch_moving_mean, batch_moving_variance = batch_normalization.get_weights()
+        #     eps = batch_normalization.epsilon
+        #     std = np.sqrt(batch_moving_variance + eps)
+        #     factor = batch_gamma / std
+        #
+        #     if isinstance(conv, DepthwiseConv2D):
+        #         factor = factor.reshape((1, 1, factor.shape[0], 1))
+        #
+        #     kernel *= factor
+        #     bias = batch_beta - batch_gamma / std * batch_moving_mean
 
         # Fuse using ReLU caps
         current_relu_cap = relu.cap
