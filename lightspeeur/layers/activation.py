@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 
 from lightspeeur.drivers import Specification
@@ -27,7 +28,8 @@ class ReLU(QuantizableLayer):
         regularizer = tf.keras.regularizers.l2(l=0.01) if self.trainable else None
         self.relu_cap = self.add_weight('relu_cap',
                                         shape=(1,),
-                                        initializer=lambda s, dtype: tf.constant([self.cap], dtype=tf.float32),
+                                        initializer=tf.keras.initializers.Constant(np.array([self.cap],
+                                                                                            dtype=np.float32)),
                                         regularizer=regularizer,
                                         constraint=None,
                                         trainable=self.trainable,
