@@ -261,11 +261,11 @@ class Conv2DTranspose(Conv2D):
                  **kwargs):
         super(Conv2DTranspose, self).__init__(filters,
                                               kernel_size,
+                                              chip_id,
                                               strides,
                                               use_bias,
                                               quantize,
                                               bit_mask,
-                                              chip_id,
                                               kernel_initializer,
                                               bias_initializer,
                                               clip_bias,
