@@ -10,9 +10,10 @@ from enum import Enum
 from tqdm import tqdm
 from tensorflow.keras import Model, backend as K
 from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.layers import BatchNormalization, Layer, InputLayer
+from tensorflow.keras.layers import BatchNormalization, Layer
 from lightspeeur.layers import Conv2D, Conv2DTranspose, DepthwiseConv2D, ReLU
 from lightspeeur.drivers import Specification
+from .model_reorganizer import reorganize_layers, get_inbound_layers, organize_layer
 
 
 class LearningStage(Enum):
@@ -65,7 +66,11 @@ class ModelStageAdvisor:
                  chip_id,
                  model: Model,
                  compile_options,
-                 checkpoints_dir='/tmp/advisor_checkpoints', cleanup_checkpoints=False):
+                 checkpoints_dir=None,
+                 cleanup_checkpoints=False):
+        if checkpoints_dir is None:
+            checkpoints_dir = '/tmp/advisor_checkpoints/{}'.format(model.name)
+
         self.specification = Specification(chip_id=chip_id)
         self.model = model
         self.current_stage = None
@@ -132,8 +137,12 @@ class ModelStageAdvisor:
         if previous_stage is not None:
             logger.info('Previous stage was {}'.format(stage_name(previous_stage)))
             stage_dir = self.get_checkpoint_stage_dir(previous_stage)
-            self.model.load_weights(tf.train.latest_checkpoint(stage_dir))
-            logger.info('Loaded best checkpoints from previous stage')
+            checkpoint = tf.train.latest_checkpoint(stage_dir)
+            if checkpoint is not None:
+                self.model.load_weights(checkpoint)
+                logger.info('Loaded best checkpoints from previous stage')
+            else:
+                logger.info('Checkpoints from previous stage is not available. Skipped.')
 
         logger.info('Next stage is {}'.format(stage_name(self.current_stage)))
         return True
@@ -270,8 +279,10 @@ class ModelStageAdvisor:
                 logger.info('{} layer groups will be fused.'.format(num_fusing_layers))
                 
                 rebuilt_layers = []
+                popped_layers = []
                 for layer in self.model.layers:
-                    if isinstance(layer, InputLayer) or isinstance(layer, BatchNormalization):
+                    if isinstance(layer, BatchNormalization):
+                        popped_layers.append(layer)
                         continue
 
                     if layer.name in fused_conv_layers:
@@ -282,16 +293,12 @@ class ModelStageAdvisor:
                             'clip_bias': clip_bias
                         })
                         conv = layer.__class__.from_config(config)
+                        organize_layer(conv, [inbound_layer.output for inbound_layer in get_inbound_layers(layer)])
                         rebuilt_layers.append(conv)
                     else:
                         rebuilt_layers.append(layer)
 
-                inputs = self.model.input
-                outputs = inputs
-                for layer in rebuilt_layers:
-                    outputs = layer(outputs)
-
-                new_model = Model(name=self.model.name, inputs=inputs, outputs=outputs)
+                new_model = reorganize_layers(self.model.name, rebuilt_layers, popped_layers)
                 for layer_name, (kernel, bias) in fused_conv_layers.items():
                     new_model.get_layer(layer_name).set_weights([kernel, bias])
                 
