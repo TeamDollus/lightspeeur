@@ -1,3 +1,5 @@
+import tensorflow as tf
+
 from tensorflow.keras import Model
 from tensorflow.keras.layers import InputLayer
 
@@ -32,14 +34,20 @@ def check_popped_layer_and_get(layer, popped_layers):
 
 def organize_layer(layer, inputs):
     # unwrap array performed from the reorganizer
+    args = []
     kwargs = {}
     if len(layer.inbound_nodes) > 0:
-        kwargs = layer.inbound_nodes[0].call_kwargs
+        node = layer.inbound_nodes[0]
+        for arg in node.call_args:
+            if tf.is_tensor(arg):
+                continue
+            args.append(arg)
+        kwargs = node.call_kwargs
 
     if len(inputs) == 1:
-        return layer(inputs[0], **kwargs)
+        return layer(inputs[0], *args, **kwargs)
     else:
-        return layer(inputs, **kwargs)
+        return layer(inputs, *args, **kwargs)
 
 
 def flatten_inbound_popped_layers(layer, popped_layers):
