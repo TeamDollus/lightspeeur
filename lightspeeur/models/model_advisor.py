@@ -167,7 +167,8 @@ class ModelStageAdvisor:
                 max_queue_size=10,
                 workers=1,
                 use_multiprocessing=False,
-                clip_bias=False):
+                clip_bias=False,
+                monitor='val_loss'):
 
         # Checkpoints
         stage_dir = self.get_checkpoint_stage_dir(self.current_stage)
@@ -175,6 +176,7 @@ class ModelStageAdvisor:
 
         checkpoint_path = os.path.join(stage_dir, '%s-{epoch:04d}.ckpt' % self.model.name)
         callback_checkpoint = ModelCheckpoint(filepath=checkpoint_path,
+                                              monitor=monitor,
                                               verbose=True,
                                               save_best_only=True,
                                               save_weights_only=True)
