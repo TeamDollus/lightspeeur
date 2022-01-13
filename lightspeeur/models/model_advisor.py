@@ -298,16 +298,34 @@ class ModelStageAdvisor:
 
         conv_weights = conv.get_weights()
         if batch_normalization is not None:
-            kernel = conv_weights[0]
-            if len(conv_weights) == 2:
-                bias = conv_weights[1]
-            else:
-                bias = tf.zeros((kernel.shape[-1],))
-
+            # Fusing batch normalization and convolution in runtime
+            # Source: https://nenadmarkus.com/p/fusing-batchnorm-and-conv/
             gamma, beta, mean, variance = batch_normalization.get_weights()
+            eps = batch_normalization.epsilon
 
-            kernel = gamma * kernel / variance
-            bias = gamma * (bias - mean) / variance + beta
+            kernel = conv_weights[0]
+
+            shape = kernel.shape
+            w_conv = tf.transpose(kernel, perm=(3, 2, 0, 1))
+            w_conv = tf.reshape(w_conv, (conv.filters, -1))
+
+            w_bn = tf.linalg.diag(gamma / (tf.sqrt(eps + variance)))
+
+            kernel = tf.matmul(w_bn, w_conv)
+            if len(conv_weights) == 2:
+                b_conv = conv_weights[1]
+            else:
+                b_conv = tf.zeros((kernel.shape[-1],))
+
+            b_bn = beta - (gamma * mean) / tf.sqrt(variance + eps)
+
+            kernel = tf.reshape(kernel, (shape[-1], shape[-2], shape[0], shape[1]))
+            kernel = tf.transpose(kernel, perm=(2, 3, 1, 0))
+
+            b_conv = tf.expand_dims(b_conv, 1)
+            b_bn = tf.expand_dims(b_bn, 1)
+            bias = tf.matmul(w_bn, b_conv) + b_bn
+            bias = tf.reshape(bias, (-1,))
         elif len(conv_weights) == 2:
             kernel, bias = conv_weights
         else:
