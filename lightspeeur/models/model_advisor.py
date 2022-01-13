@@ -239,80 +239,7 @@ class ModelStageAdvisor:
         else:
             is_model_fusion = self.current_stage == LearningStage.MODEL_FUSION
             if is_model_fusion:
-                fused_conv_layers = {}
-                fused_relu_layers = {}
-                popped_layers = []
-                num_fusing_layers = 0
-                length = len(self.model.layers)
-                for group in MODEL_FUSION_GROUPS:
-                    for i in range(length - len(group)):
-                        eligible = True
-                        for offset, layer_type in enumerate(group):
-                            if not isinstance(self.model.get_layer(index=i + offset), layer_type):
-                                eligible = False
-                                break
-
-                        if not eligible:
-                            continue
-
-                        conv = self.model.get_layer(index=i)  # first layer
-                        relu: ReLU = self.model.get_layer(index=i + len(group) - 1)  # last layer
-
-                        if len(group) == 3:
-                            batch_normalization = self.model.get_layer(index=i + 1)
-                            popped_layers.append(batch_normalization)
-                        else:
-                            batch_normalization = None
-
-                        prev_relu_layers = [layer
-                                            for index, layer in enumerate(self.model.layers)
-                                            if isinstance(layer, ReLU) and index < i]
-                        if len(prev_relu_layers) == 0:
-                            prev_relu_cap = self.specification.max_activation()
-                        else:
-                            prev_relu_cap = prev_relu_layers[-1].cap
-
-                        kernel, bias = self.fuse_convolutional_and_batch_norm(conv,
-                                                                              prev_relu_cap,
-                                                                              relu, batch_normalization)
-                        fused_conv_layers[conv.name] = (kernel, bias)
-                        fused_relu_layers[relu.name] = self.specification.max_activation(relu.activation_bits)
-
-                        num_fusing_layers += 1
-
-                logger.info('{} layer groups will be fused.'.format(num_fusing_layers))
-                
-                rebuilt_layers = []
-                for layer in self.model.layers:
-                    if isinstance(layer, BatchNormalization):
-                        continue
-
-                    if layer.name in fused_conv_layers:
-                        # create a new conv layer
-                        config = layer.get_config()
-                        config.update({
-                            'use_bias': True,
-                            'clip_bias': clip_bias
-                        })
-                        conv = layer.__class__.from_config(config)
-
-                        inbound_outputs_map = {inbound_layer.name: [inbound_layer.output]
-                                               for inbound_layer in get_inbound_layers(layer)}
-                        organize_layer(conv, inbound_outputs_map, popped_layers, force=True)
-                        rebuilt_layers.append(conv)
-                    else:
-                        rebuilt_layers.append(layer)
-
-                new_model = reorganize_layers(self.model.name, rebuilt_layers, popped_layers)
-                for layer_name, (kernel, bias) in fused_conv_layers.items():
-                    new_model.get_layer(layer_name).set_weights([kernel, bias])
-                
-                for layer_name, relu_cap in fused_relu_layers.items():
-                    layer = new_model.get_layer(layer_name)
-                    layer.cap = relu_cap
-                    layer.set_weights([tf.constant([relu_cap], dtype=tf.float32)])
-
-                self.model = new_model
+                self.model = self.fold_batch_normalization(self.model, clip_bias=clip_bias)
             else:
                 is_conv_quantization = self.current_stage == LearningStage.QUANTIZED_CONVOLUTION_TRAINING
                 is_activation_quantization = self.current_stage == LearningStage.QUANTIZED_ACTIVATION_TRAINING
@@ -397,3 +324,78 @@ class ModelStageAdvisor:
         bias *= gain_bias
         return kernel, bias
 
+    def fold_batch_normalization(self, src_model, clip_bias=False):
+        fused_conv_layers = {}
+        fused_relu_layers = {}
+        popped_layers = []
+        num_fusing_layers = 0
+        length = len(src_model.layers)
+        for group in MODEL_FUSION_GROUPS:
+            for i in range(length - len(group)):
+                eligible = True
+                for offset, layer_type in enumerate(group):
+                    if not isinstance(src_model.get_layer(index=i + offset), layer_type):
+                        eligible = False
+                        break
+
+                if not eligible:
+                    continue
+
+                conv = src_model.get_layer(index=i)  # first layer
+                relu: ReLU = src_model.get_layer(index=i + len(group) - 1)  # last layer
+
+                if len(group) == 3:
+                    batch_normalization = src_model.get_layer(index=i + 1)
+                    popped_layers.append(batch_normalization)
+                else:
+                    batch_normalization = None
+
+                prev_relu_layers = [layer
+                                    for index, layer in enumerate(src_model.layers)
+                                    if isinstance(layer, ReLU) and index < i]
+                if len(prev_relu_layers) == 0:
+                    prev_relu_cap = self.specification.max_activation()
+                else:
+                    prev_relu_cap = prev_relu_layers[-1].cap
+
+                kernel, bias = self.fuse_convolutional_and_batch_norm(conv,
+                                                                      prev_relu_cap,
+                                                                      relu, batch_normalization)
+                fused_conv_layers[conv.name] = (kernel, bias)
+                fused_relu_layers[relu.name] = self.specification.max_activation(relu.activation_bits)
+
+                num_fusing_layers += 1
+
+        logger.info('{} layer groups will be fused.'.format(num_fusing_layers))
+
+        rebuilt_layers = []
+        for layer in src_model.layers:
+            if isinstance(layer, BatchNormalization):
+                continue
+
+            if layer.name in fused_conv_layers:
+                # create a new conv layer
+                config = layer.get_config()
+                config.update({
+                    'use_bias': True,
+                    'clip_bias': clip_bias
+                })
+                conv = layer.__class__.from_config(config)
+
+                inbound_outputs_map = {inbound_layer.name: [inbound_layer.output]
+                                       for inbound_layer in get_inbound_layers(layer)}
+                organize_layer(conv, inbound_outputs_map, popped_layers, force=True)
+                rebuilt_layers.append(conv)
+            else:
+                rebuilt_layers.append(layer)
+
+        new_model = reorganize_layers(src_model.name, rebuilt_layers, popped_layers)
+        for layer_name, (kernel, bias) in fused_conv_layers.items():
+            new_model.get_layer(layer_name).set_weights([kernel, bias])
+
+        for layer_name, relu_cap in fused_relu_layers.items():
+            layer = new_model.get_layer(layer_name)
+            layer.cap = relu_cap
+            layer.set_weights([tf.constant([relu_cap], dtype=tf.float32)])
+
+        return new_model
