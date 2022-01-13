@@ -402,7 +402,7 @@ class ModelStageAdvisor:
 
                 inbound_outputs_map = {inbound_layer.name: [inbound_layer.output]
                                        for inbound_layer in get_inbound_layers(layer)}
-                organize_layer(conv, inbound_outputs_map, popped_layers, force=True)
+                organize_layer(conv, inbound_outputs_map, popped_layers, force=True, recreate=False)
                 rebuilt_layers.append(conv)
             else:
                 rebuilt_layers.append(layer)

@@ -76,7 +76,7 @@ def parse_tensor_call_kwargs(outputs_map, elements, kwargs, popped_layers):
     return kwargs
 
 
-def organize_layer(layer, outputs_map, popped_layers, force=False):
+def organize_layer(layer, outputs_map, popped_layers, force=False, recreate=True):
     # unwrap array performed from the reorganizer
     args = []
     kwargs = {}
@@ -89,7 +89,14 @@ def organize_layer(layer, outputs_map, popped_layers, force=False):
         node = layer.inbound_nodes[0]
         args = parse_tensor_call_args(outputs_map, node.call_args, args, popped_layers)
         kwargs = parse_tensor_call_kwargs(outputs_map, node.call_kwargs, kwargs, popped_layers)
-    return layer(*args, **kwargs)
+    if recreate:
+        config = layer.get_config()
+        replicated = layer.__class__.from_config(config)
+        replicated(*args, **kwargs)
+        replicated.set_weights(layer.get_weights())
+        return replicated.output
+    else:
+        return layer(*args, **kwargs)
 
 
 def flatten_inbound_popped_layers(layer, popped_layers):
