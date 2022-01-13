@@ -257,6 +257,13 @@ class ModelStageAdvisor:
                                 'you don\'t need to provide folded-architecture model')
                     self.model = folded
 
+                self.compile()
+                logger.info('Evaluating folded model...')
+                loss, metric = self.model.evaluate(x, y, batch_size)
+                logger.info('Evaluation result:')
+                logger.info('  Loss: {}'.format(loss))
+                logger.info('  Metric: {}'.format(metric))
+                logger.info('If the metric or loss result are bad. You must fine-tune the model.')
             else:
                 is_conv_quantization = self.current_stage == LearningStage.QUANTIZED_CONVOLUTION_TRAINING
                 is_activation_quantization = self.current_stage == LearningStage.QUANTIZED_ACTIVATION_TRAINING
@@ -273,16 +280,16 @@ class ModelStageAdvisor:
                     for layer in layers:
                         layer.quantize = True
 
-            self.compile()
-            self.fit(x, y,
-                     batch_size, epochs,
-                     verbose, callbacks,
-                     validation_split, validation_data,
-                     shuffle,
-                     class_weight, sample_weight,
-                     initial_epoch, steps_per_epoch,
-                     validation_steps, validation_batch_size, validation_freq,
-                     max_queue_size, workers, use_multiprocessing)
+                self.compile()
+                self.fit(x, y,
+                         batch_size, epochs,
+                         verbose, callbacks,
+                         validation_split, validation_data,
+                         shuffle,
+                         class_weight, sample_weight,
+                         initial_epoch, steps_per_epoch,
+                         validation_steps, validation_batch_size, validation_freq,
+                         max_queue_size, workers, use_multiprocessing)
 
     def calibrate_relu_caps(self, inputs, initial_relu_caps, test_cases):
         # Feed-forward to record outputs
