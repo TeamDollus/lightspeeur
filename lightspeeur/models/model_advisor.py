@@ -9,6 +9,7 @@ import tensorflow as tf
 from enum import Enum
 from tqdm import tqdm
 from tensorflow.keras import Model, backend as K
+from tensorflow.keras.metrics import Metric
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.layers import BatchNormalization, Layer
 from lightspeeur.layers import Conv2D, Conv2DTranspose, DepthwiseConv2D, ReLU
@@ -84,6 +85,24 @@ class ModelStageAdvisor:
         if self.cleanup_checkpoints and os.path.exists(self.checkpoints_dir):
             shutil.rmtree(self.checkpoints_dir)
 
+    def invalidate_list_compile_option_recursively(self, array):
+        for v in array:
+            if isinstance(v, Metric):
+                v.reset_state()
+            elif isinstance(v, dict):
+                self.invalidate_dict_compile_option_recursively(v)
+            elif isinstance(v, (list, tuple)):
+                self.invalidate_list_compile_option_recursively(v)
+
+    def invalidate_dict_compile_option_recursively(self, dicts):
+        for k, v in dicts.items():
+            if isinstance(v, Metric):
+                v.reset_state()
+            elif isinstance(v, dict):
+                self.invalidate_dict_compile_option_recursively(v)
+            elif isinstance(v, (list, tuple)):
+                self.invalidate_list_compile_option_recursively(v)
+
     def compile(self, model=None, options=None):
         model = self.model if model is None else model
 
@@ -92,6 +111,7 @@ class ModelStageAdvisor:
             for k, v in options.items():
                 compile_options[k] = v
 
+        self.invalidate_dict_compile_option_recursively(compile_options)
         model.compile(**compile_options)
 
     def fit(self,
