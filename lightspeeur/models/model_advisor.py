@@ -66,6 +66,7 @@ class ModelStageAdvisor:
                  chip_id,
                  model: Model,
                  compile_options,
+                 folded_shape_model=None,
                  checkpoints_dir=None,
                  cleanup_checkpoints=False):
         if checkpoints_dir is None:
@@ -73,6 +74,7 @@ class ModelStageAdvisor:
 
         self.specification = Specification(chip_id=chip_id)
         self.model = model
+        self.folded_shape_model = folded_shape_model
         self.current_stage = None
         self.compile_options = compile_options
         self.checkpoints_dir = checkpoints_dir
@@ -239,7 +241,22 @@ class ModelStageAdvisor:
         else:
             is_model_fusion = self.current_stage == LearningStage.MODEL_FUSION
             if is_model_fusion:
-                self.model = self.fold_batch_normalization(self.model, clip_bias=clip_bias)
+                folded = self.fold_batch_normalization(self.model, clip_bias=clip_bias)
+                if self.folded_shape_model is not None:
+                    logger.info('Folded-architecture model have been provided.')
+                    logger.info('Projects all weights from automatically folded model to provided fused model.')
+                    logger.info('All lightspeeur layers in folded-architecture model must turn on quantize option')
+                    for index, layer in enumerate(self.folded_shape_model.layers):
+                        fused_layer = folded.get_layer(index=index)
+                        layer.set_weights(fused_layer.get_weights())
+                    self.model = self.folded_shape_model
+                else:
+                    logger.info('No folded-architecture model have been provided.')
+                    logger.info('Note: Providing folded-architecture model is recommended.')
+                    logger.info('If there is no BatchNormalization in the model, '
+                                'you don\'t need to provide folded-architecture model')
+                    self.model = folded
+
             else:
                 is_conv_quantization = self.current_stage == LearningStage.QUANTIZED_CONVOLUTION_TRAINING
                 is_activation_quantization = self.current_stage == LearningStage.QUANTIZED_ACTIVATION_TRAINING
