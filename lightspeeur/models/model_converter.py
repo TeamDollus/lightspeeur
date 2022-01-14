@@ -9,7 +9,7 @@ from functools import reduce
 from tensorflow.keras import Model
 from lightspeeur.drivers.specification import Specification
 from lightspeeur.drivers import Configurer, Driver
-from lightspeeur.layers import Conv2D, Conv2DTranspose, DepthwiseConv2D, MaxPooling2D, TopLeftPooling2D
+from lightspeeur.layers import Conv2D, Conv2DTranspose, DepthwiseConv2D, MaxPooling2D, TopLeftPooling2D, ReLU
 from lightspeeur.layers.quantization import quantize_kernel, quantized_shift, compute_quantized_shift
 from lightspeeur.drivers.utils import permute_axis
 
@@ -270,7 +270,8 @@ class ModelConverter:
                 upsample = False
 
                 if layer.get('upsample_enable'):
-                    image_size *= 2
+                    # TODO: when a major layer starts, its sequence must be [UpSampling, Conv2D, ..., ReLU]
+                    # image_size *= 2
                     upsample = True
 
                 if layer.get('ten_bits_enable'):
@@ -337,7 +338,13 @@ class ModelConverter:
 
     def create_default_model_data(self, data_file, small_graph):
         layers = []
+
+        sampling_poolings = 0
+        max_poolings = 0
+        float_mode = False
         for major_index, chunk in enumerate(small_graph):
+            float_mode = False  # disable float mode every major layer starts
+
             layer_info = {
                 'major_layer': major_index + 1
             }
@@ -379,11 +386,17 @@ class ModelConverter:
                         layer_info['upsample_enable'] = True
                     one_coefficients.append(1 if layer.kernel_size == (1, 1) else 0)
                     conv_included = True
-                elif is_pooling(layer):
+                    continue
+                if is_pooling(layer):
+                    if isinstance(layer, TopLeftPooling2D):
+                        sampling_poolings += 1
+                    elif isinstance(layer, MaxPooling2D):
+                        max_poolings += 1
                     layer_info['pooling'] = True
-                    excluded_layers += 1
-                else:
-                    excluded_layers += 1
+                elif isinstance(layer, ReLU) and layer.activation_bits > 5:
+                    float_mode = True
+
+                excluded_layers += 1
             if not conv_included:
                 raise ValueError('Graph layer chunk must include at least one or more convolutional layers')
             if not input_channels:
@@ -394,8 +407,14 @@ class ModelConverter:
                 raise ValueError('Image size information is not valid')
 
             num_sublayers = len(chunk) - excluded_layers
+            if float_mode:
+                if major_index != len(small_graph) - 1 or num_sublayers > 1:
+                    raise ValueError('10-bits activation can be only enabled '
+                                     'when its layer is last one and only 1 sublayers exists')
+
+                layer_info['ten_bits_enable'] = True
             layer_info['sublayer_number'] = num_sublayers
-            if num_sublayers > 0:
+            if num_sublayers > 0 and layer_info.get('depth_enable'):
                 layer_info['one_coef'] = one_coefficients
             layer_info['input_channels'] = input_channels
             layer_info['output_channels'] = output_channels
@@ -403,11 +422,23 @@ class ModelConverter:
             layer_info['coef_bits'] = coef_bits
             layers.append(layer_info)
 
+        if sampling_poolings > 0 and max_poolings > 0:
+            raise ValueError('Only one type of pooling layer can be existed in the model. '
+                             '{} sampling poolings and {} max poolings layer have found.'
+                             .format(sampling_poolings, max_poolings))
+
+        model_info = {
+            'ChipType': int(self.chip_id),
+        }
+        if sampling_poolings > 0 and max_poolings == 0:
+            model_info['SamplingMethod'] = 1
+
+        if float_mode:
+            model_info['ActivationBitMode'] = 1
+
         body = {
             'layer': layers,
-            'model': [{
-                'ChipType': int(self.chip_id),
-            }]
+            'model': [model_info]
         }
         with open(data_file, 'w') as f:
             json.dump(body, f, indent=4, sort_keys=True)
@@ -417,33 +448,38 @@ class ModelConverter:
     def create_default_model_definition(self, graph_name, model_file):
         latest_chunk = self.graph[graph_name][-1]
         output_shapes = (-1, 1, 1)  # channels, height, width
+        float_mode = False
         for layer_name in latest_chunk:
             layer = self.model.get_layer(layer_name)
             if is_convolutional(layer):
                 shape = layer.output.shape  # batch_size, width, height, channels
                 output_shapes = (shape[-1], shape[-2], shape[-3])
-                break
+            elif isinstance(layer, ReLU) and layer.activation_bits > 5:
+                float_mode = True
 
         if output_shapes[0] == -1:
             raise ValueError('The latest graph layer chunk does not contain proper output shapes')
 
         # multiple layers for multiple-chip mode (cascade mode)
+        model_layer = {
+            'data offset': 0,
+            'device': {
+                'chip': self.chip_id,
+                'name': None,
+                'type': 0
+            },
+            'mode': 0,
+            'name': 'cnn',
+            'operation': 'GTICNN',
+            'output channels': output_shapes[0],
+            'output height': output_shapes[1],
+            'output width': output_shapes[2]
+        }
+        if float_mode:
+            model_layer['type'] = 'float'
         body = {
             'name': graph_name,
-            'layer': [{
-                'data offset': 0,
-                'device': {
-                    'chip': self.chip_id,
-                    'name': None,
-                    'type': 0
-                },
-                'mode': 0,
-                'name': 'cnn',
-                'operation': 'GTICNN',
-                'output channels': output_shapes[0],
-                'output height': output_shapes[1],
-                'output width': output_shapes[2]
-            }]
+            'layer': [model_layer]
         }
         with open(model_file, 'w') as f:
             json.dump(body, f, indent=4, sort_keys=True)
