@@ -54,9 +54,9 @@ class ModelConverter:
             logger.info('Preparing conversion of {}'.format(graph_name))
             layer_limits = self.spec.get_layer_limits()
             if layer_limits is not None:
-                if len(small_graph) > layer_limits['max']:
+                if len(small_graph) > layer_limits['major']:
                     raise ValueError('Chip {} supports up to {} major layers'
-                                     .format(self.chip_id, layer_limits['max']))
+                                     .format(self.chip_id, layer_limits['major']))
 
                 max_sublayers = max([len(x) for x in small_graph])
                 if max_sublayers > layer_limits['sub']:
