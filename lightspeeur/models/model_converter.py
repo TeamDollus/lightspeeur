@@ -340,7 +340,10 @@ class ModelConverter:
                         input_channels = layer.input.shape[-1]
                     output_channels = layer.output.shape[-1]
 
-                    layer_image_size = layer.input.shape[1]
+                    if isinstance(layer, Conv2DTranspose):
+                        layer_image_size = layer.output.shape[1]
+                    else:
+                        layer_image_size = layer.input.shape[1]
                     if image_size is None:
                         image_size = layer_image_size
                     elif image_size != layer_image_size:
