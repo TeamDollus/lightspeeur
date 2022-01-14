@@ -13,4 +13,7 @@ setup(name='lightspeeur',
             'tensorflow>=2.0',
             'numpy',
             'tqdm',
-      ])
+      ],
+      extras_require={
+            'tests': ['pytest']
+      })
