@@ -37,6 +37,14 @@ class Specification:
     }
     RELU_CAP_10BITS = 31.96875
 
+    LAYER_LIMITS = {
+        '2803': {
+            'major': 6,
+            'sub': 12,
+            'total': 72
+        }
+    }
+
     def __init__(self, chip_id):
         self.chip_id = str(chip_id)
 
@@ -47,6 +55,11 @@ class Specification:
                 info = json.load(f)
             SPEC_INFO = info
         self.info = SPEC_INFO
+
+    def get_layer_limits(self):
+        if self.chip_id in Specification.LAYER_LIMITS:
+            return Specification.LAYER_LIMITS[self.chip_id]
+        return None
 
     def get_info(self):
         return self.info

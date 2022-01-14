@@ -5,6 +5,7 @@ import shutil
 
 import numpy as np
 
+from functools import reduce
 from tensorflow.keras import Model
 from lightspeeur.drivers.specification import Specification
 from lightspeeur.drivers import Configurer, Driver
@@ -51,6 +52,22 @@ class ModelConverter:
         results = []
         for graph_name, small_graph in self.graph.items():
             logger.info('Preparing conversion of {}'.format(graph_name))
+            layer_limits = self.spec.get_layer_limits()
+            if layer_limits is not None:
+                if len(small_graph) > layer_limits['max']:
+                    raise ValueError('Chip {} supports up to {} major layers'
+                                     .format(self.chip_id, layer_limits['max']))
+
+                max_sublayers = max([len(x) for x in small_graph])
+                if max_sublayers > layer_limits['sub']:
+                    raise ValueError('Chip {} supports up to {} sub layers per major layer'
+                                     .format(self.chip_id, layer_limits['sub']))
+
+                total_layers = reduce(lambda res, value: res + len(value), small_graph, 0)
+                if total_layers > layer_limits['total']:
+                    raise ValueError('Chip {} supports up to {} layers in a row'
+                                     .format(self.chip_id, layer_limits['total']))
+
             data_infos = self.convert_on_chip_graph(graph_name, small_graph)
             # TODO: Really host layer required?
             for i, data_info in enumerate(data_infos):
