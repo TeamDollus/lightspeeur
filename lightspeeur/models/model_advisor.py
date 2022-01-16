@@ -299,6 +299,8 @@ class ModelStageAdvisor:
                     layers = [layer for layer in self.model.layers if is_eligible(layer, eligible_types)]
                     for layer in layers:
                         layer.quantize = True
+                        if isinstance(layer, ReLU):
+                            layer.trainable = True
 
                 self.compile()
                 self.fit(x, y,
@@ -377,7 +379,7 @@ class ModelStageAdvisor:
             bias = tf.zeros((kernel.shape[-1],))
 
         # Fuse using ReLU caps
-        current_relu_cap = relu.cap
+        current_relu_cap = relu.get_weights()[0][0]  # relu_cap
         max_activation = self.specification.max_activation(bits=relu.activation_bits)
         gain_bias = max_activation / current_relu_cap
         gain_kernel = prev_relu_cap / current_relu_cap
