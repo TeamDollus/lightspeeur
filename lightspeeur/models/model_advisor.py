@@ -299,8 +299,9 @@ class ModelStageAdvisor:
                     layers = [layer for layer in self.model.layers if is_eligible(layer, eligible_types)]
                     for layer in layers:
                         layer.quantize = True
-                        if isinstance(layer, ReLU):
+                        if isinstance(layer, ReLU) and is_activation_quantization:
                             layer.trainable = True
+                            layer.build(layer.input.shape)
 
                 self.compile()
                 self.fit(x, y,
