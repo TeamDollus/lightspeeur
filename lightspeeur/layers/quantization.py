@@ -7,19 +7,16 @@ from lightspeeur.drivers import Specification
 EPSILON = 1e-6
 
 
-@tf.function
 def round_as_chip(x):
     y = tf.where(x >= 0, tf.math.floor(x + 0.5), tf.math.ceil(x - 0.5))
     return x + tf.stop_gradient(y - x)
 
 
-@tf.function
 def quantized_shift(x, shift):
     y = round_as_chip(x * (2 ** shift)) / (2 ** shift)
     return x + tf.stop_gradient(y - x)
 
 
-@tf.function
 def quantized_bit_shift(x, bit_max):
     steps = (2.0 ** (bit_max - 1) - 1) / tf.reduce_max(tf.abs(x))
     shift = tf.cast(tf.math.log(steps) / tf.math.log(2.0), tf.int32)
@@ -27,7 +24,6 @@ def quantized_bit_shift(x, bit_max):
     return tf.stop_gradient(shift)
 
 
-@tf.function
 def compute_quantized_shift(specification: Specification, kernel, biases, bit_mask):
     bit_weight, bit_bias = specification.quantization_scheme(bit_mask)
     shifted_weight = quantized_bit_shift(kernel, bit_weight)
@@ -40,7 +36,6 @@ def compute_quantized_shift(specification: Specification, kernel, biases, bit_ma
     return tf.stop_gradient(shifted)
 
 
-@tf.function
 def quantize_kernel(x, shift, bits):
     transposed_x = tf.transpose(x, perm=permute_axis('HWIO', 'OIHW'))
     abs_transposed_x = tf.abs(transposed_x)
