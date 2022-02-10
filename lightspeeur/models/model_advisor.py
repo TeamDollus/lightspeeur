@@ -289,7 +289,10 @@ class ModelStageAdvisor:
 
                 self.compile()
                 logger.info('Evaluating folded model...')
-                loss, metric = self.model.evaluate(x, y, batch_size)
+                steps = None
+                if isinstance(x, tf.data.Dataset):
+                    steps = steps_per_epoch
+                loss, metric = self.model.evaluate(x, y, batch_size, steps=steps)
                 logger.info('Evaluation result:')
                 logger.info('  Loss: {}'.format(loss))
                 logger.info('  Metric: {}'.format(metric))
