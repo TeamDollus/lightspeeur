@@ -190,6 +190,7 @@ class ModelStageAdvisor:
                 workers=1,
                 use_multiprocessing=False,
                 clip_bias=False,
+                relu_calibration_sample_steps=None,
                 monitor='val_loss'):
 
         # Checkpoints
@@ -226,6 +227,9 @@ class ModelStageAdvisor:
                 if batch_size is not None:
                     length = tf.shape(x)[0]
                     steps = length // batch_size
+                    if relu_calibration_sample_steps is not None:
+                        steps = min(steps, relu_calibration_sample_steps)
+
                     for i in tqdm(range(int(steps))):
                         batch = x[i * batch_size:min(length, (i + 1) * batch_size)]
                         relu_caps = self.calibrate_relu_caps(batch, relu_caps, test_cases)
@@ -235,12 +239,15 @@ class ModelStageAdvisor:
                 if steps_per_epoch is None:
                     raise ValueError('steps_per_epoch cannot be None when the dataflow is iterator')
 
+                steps = steps_per_epoch
+                if relu_calibration_sample_steps is not None:
+                    steps = min(steps, relu_calibration_sample_steps)
                 if inspect.isgeneratorfunction(x):
-                    for value in tqdm(x, total=int(steps_per_epoch)):
+                    for value in tqdm(x, total=int(steps)):
                         inputs, _ = value
                         relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
                 elif hasattr(x, '__getitem__'):
-                    for i in tqdm(range(int(steps_per_epoch))):
+                    for i in tqdm(range(int(steps))):
                         inputs, _ = x[i]
                         relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
                 else:
