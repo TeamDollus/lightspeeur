@@ -250,6 +250,9 @@ class ModelStageAdvisor:
                     for i in tqdm(range(int(steps))):
                         inputs, _ = x[i]
                         relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
+                elif isinstance(x, tf.data.Dataset):
+                    for inputs, _ in tqdm(x.take(steps)):
+                        relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
                 else:
                     raise ValueError('It is exceptional case to calibrate ReLU caps')
 
