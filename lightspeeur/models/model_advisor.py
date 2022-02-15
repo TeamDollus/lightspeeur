@@ -211,110 +211,17 @@ class ModelStageAdvisor:
 
         if self.current_stage == LearningStage.CALIBRATE_RELU_CAPS:
             self.compile()
-
-            relus = [layer for layer in self.model.layers if isinstance(layer, ReLU)]
-            relu_caps = {layer.name: 0.0 for layer in relus}
-
-            test_cases = []
-            for layer in self.model.layers:
-                if isinstance(layer, ReLU):
-                    test_case = K.function(inputs=self.model.layers[0].input,
-                                           outputs=layer.output)
-                    test_cases.append((test_case, layer.name))
-
-            logger.info('Feed-forward model to record ReLU outputs')
-            if isinstance(x, np.ndarray) or isinstance(x, tf.Tensor):
-                if batch_size is not None:
-                    length = tf.shape(x)[0]
-                    steps = length // batch_size
-                    if relu_calibration_sample_steps is not None:
-                        steps = min(steps, relu_calibration_sample_steps)
-
-                    for i in tqdm(range(int(steps))):
-                        batch = x[i * batch_size:min(length, (i + 1) * batch_size)]
-                        relu_caps = self.calibrate_relu_caps(batch, relu_caps, test_cases)
-                else:
-                    relu_caps = self.calibrate_relu_caps(x, relu_caps, test_cases)
-            else:
-                if steps_per_epoch is None:
-                    raise ValueError('steps_per_epoch cannot be None when the dataflow is iterator')
-
-                steps = steps_per_epoch
-                if relu_calibration_sample_steps is not None:
-                    steps = min(steps, relu_calibration_sample_steps)
-                if inspect.isgeneratorfunction(x):
-                    for value in tqdm(x, total=int(steps)):
-                        inputs, _ = value
-                        relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
-                elif hasattr(x, '__getitem__'):
-                    for i in tqdm(range(int(steps))):
-                        inputs, _ = x[i]
-                        relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
-                elif isinstance(x, tf.data.Dataset):
-                    for inputs, _ in tqdm(x.take(steps)):
-                        relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
-                else:
-                    raise ValueError('It is exceptional case to calibrate ReLU caps')
-
-            logger.info('Initialized ReLU caps:')
-
-            for k in sorted(relu_caps.keys()):
-                logger.info('\t"{}": {}'.format(k, relu_caps[k]))
-
-            for k, v in relu_caps.items():
-                layer = self.model.get_layer(k)
-                if isinstance(layer, ReLU):
-                    layer.cap = v
-                    layer.set_weights([tf.constant([v], dtype=tf.float32)])
-
-            self.model.save_weights(checkpoint_path.format(epoch=1))
+            self.calibrate_relu(x, batch_size, steps_per_epoch, relu_calibration_sample_steps, checkpoint_path)
         else:
             is_model_fusion = self.current_stage == LearningStage.MODEL_FUSION
             if is_model_fusion:
-                folded = self.fold_batch_normalization(self.model, clip_bias=clip_bias)
-                if self.folded_shape_model is not None:
-                    logger.info('Folded-architecture model have been provided.')
-                    logger.info('Projects all weights from automatically folded model to provided fused model.')
-                    logger.info('All lightspeeur layers in folded-architecture model must turn on quantize option')
-                    for index, layer in enumerate(self.folded_shape_model.layers):
-                        fused_layer = folded.get_layer(index=index)
-                        layer.set_weights(fused_layer.get_weights())
-                    self.model = self.folded_shape_model
-                else:
-                    logger.info('No folded-architecture model have been provided.')
-                    logger.info('Note: Providing folded-architecture model is recommended.')
-                    logger.info('If there is no BatchNormalization in the model, '
-                                'you don\'t need to provide folded-architecture model')
-                    self.model = folded
-
-                self.compile()
-                logger.info('Evaluating folded model...')
-                steps = None
-                if isinstance(x, tf.data.Dataset):
-                    steps = steps_per_epoch
-                loss, metric = self.model.evaluate(x, y, batch_size, steps=steps)
-                logger.info('Evaluation result:')
-                logger.info('  Loss: {}'.format(loss))
-                logger.info('  Metric: {}'.format(metric))
-                logger.info('If the metric or loss result are bad. You must fine-tune the model.')
+                self.fold(x, y, batch_size, steps_per_epoch, clip_bias)
             else:
                 is_conv_quantization = self.current_stage == LearningStage.QUANTIZED_CONVOLUTION_TRAINING
                 is_activation_quantization = self.current_stage == LearningStage.QUANTIZED_ACTIVATION_TRAINING
 
-                eligible_types = None
-                if is_conv_quantization:
-                    eligible_types = QUANTIZABLE_CONVOLUTION
-                elif is_activation_quantization:
-                    eligible_types = QUANTIZABLE_ACTIVATION
-
-                # Convolutional and Activation Layer Quantization
-                if eligible_types is not None:
-                    layers = [layer for layer in self.model.layers if is_eligible(layer, eligible_types)]
-                    for layer in layers:
-                        layer.quantize = True
-                        if isinstance(layer, ReLU) and is_activation_quantization:
-                            layer.trainable = True
-                            layer.build(layer.input.shape)
+                if is_conv_quantization or is_activation_quantization:
+                    self.quantize(is_activation_quantization)
 
                 self.compile()
                 self.fit(x, y,
@@ -326,6 +233,103 @@ class ModelStageAdvisor:
                          initial_epoch, steps_per_epoch,
                          validation_steps, validation_batch_size, validation_freq,
                          max_queue_size, workers, use_multiprocessing)
+
+    def quantize(self, quantize_activation=False):
+        eligible_types = QUANTIZABLE_CONVOLUTION
+        if quantize_activation:
+            eligible_types += QUANTIZABLE_ACTIVATION
+
+        # Convolutional and Activation Layer Quantization
+        if eligible_types is not None:
+            layers = [layer for layer in self.model.layers if is_eligible(layer, eligible_types)]
+            for layer in layers:
+                layer.quantize = True
+
+    def fold(self, x, y, batch_size, steps_per_epoch, clip_bias):
+        folded = self.fold_batch_normalization(self.model, clip_bias=clip_bias)
+        if self.folded_shape_model is not None:
+            logger.info('Folded-architecture model have been provided.')
+            logger.info('Projects all weights from automatically folded model to provided fused model.')
+            logger.info('All lightspeeur layers in folded-architecture model must turn on quantize option')
+            for index, layer in enumerate(self.folded_shape_model.layers):
+                fused_layer = folded.get_layer(index=index)
+                layer.set_weights(fused_layer.get_weights())
+            self.model = self.folded_shape_model
+        else:
+            logger.info('No folded-architecture model have been provided.')
+            logger.info('Note: Providing folded-architecture model is recommended.')
+            logger.info('If there is no BatchNormalization in the model, '
+                        'you don\'t need to provide folded-architecture model')
+            self.model = folded
+
+        self.compile()
+        logger.info('Evaluating folded model...')
+        steps = None
+        if isinstance(x, tf.data.Dataset):
+            steps = steps_per_epoch
+        loss, metric = self.model.evaluate(x, y, batch_size, steps=steps)
+        logger.info('Evaluation result:')
+        logger.info('  Loss: {}'.format(loss))
+        logger.info('  Metric: {}'.format(metric))
+        logger.info('If the metric or loss result are bad. You must fine-tune the model.')
+
+    def calibrate_relu(self, x, batch_size, steps_per_epoch, relu_calibration_sample_steps, checkpoint_path):
+        relus = [layer for layer in self.model.layers if isinstance(layer, ReLU)]
+        relu_caps = {layer.name: 0.0 for layer in relus}
+
+        test_cases = []
+        for layer in self.model.layers:
+            if isinstance(layer, ReLU):
+                test_case = K.function(inputs=self.model.layers[0].input,
+                                       outputs=layer.output)
+                test_cases.append((test_case, layer.name))
+
+        logger.info('Feed-forward model to record ReLU outputs')
+        if isinstance(x, np.ndarray) or isinstance(x, tf.Tensor):
+            if batch_size is not None:
+                length = tf.shape(x)[0]
+                steps = length // batch_size
+                if relu_calibration_sample_steps is not None:
+                    steps = min(steps, relu_calibration_sample_steps)
+
+                for i in tqdm(range(int(steps))):
+                    batch = x[i * batch_size:min(length, (i + 1) * batch_size)]
+                    relu_caps = self.calibrate_relu_caps(batch, relu_caps, test_cases)
+            else:
+                relu_caps = self.calibrate_relu_caps(x, relu_caps, test_cases)
+        else:
+            if steps_per_epoch is None:
+                raise ValueError('steps_per_epoch cannot be None when the dataflow is iterator')
+
+            steps = steps_per_epoch
+            if relu_calibration_sample_steps is not None:
+                steps = min(steps, relu_calibration_sample_steps)
+            if inspect.isgeneratorfunction(x):
+                for value in tqdm(x, total=int(steps)):
+                    inputs, _ = value
+                    relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
+            elif hasattr(x, '__getitem__'):
+                for i in tqdm(range(int(steps))):
+                    inputs, _ = x[i]
+                    relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
+            elif isinstance(x, tf.data.Dataset):
+                for inputs, _ in tqdm(x.take(steps)):
+                    relu_caps = self.calibrate_relu_caps(inputs, relu_caps, test_cases)
+            else:
+                raise ValueError('It is exceptional case to calibrate ReLU caps')
+
+        logger.info('Initialized ReLU caps:')
+
+        for k in sorted(relu_caps.keys()):
+            logger.info('\t"{}": {}'.format(k, relu_caps[k]))
+
+        for k, v in relu_caps.items():
+            layer = self.model.get_layer(k)
+            if isinstance(layer, ReLU):
+                layer.cap = v
+                layer.set_weights([tf.constant([v], dtype=tf.float32)])
+
+        self.model.save_weights(checkpoint_path.format(epoch=1))
 
     def calibrate_relu_caps(self, inputs, initial_relu_caps, test_cases):
         # Feed-forward to record outputs
