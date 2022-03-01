@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 
 from tensorflow.keras import layers
@@ -5,6 +6,15 @@ from lightspeeur.drivers import permute_axis
 from lightspeeur.drivers import Specification
 
 EPSILON = 1e-6
+
+
+def quantize_image(x):
+    x = x.astype(np.uint8)
+    x = np.right_shift(x, np.ones_like(x) * 2)
+    x += 1
+    x = np.right_shift(x, np.ones_like(x)).astype(np.float32)
+    x = np.clip(x, 0., 31.)
+    return x
 
 
 def round_as_chip(x):
