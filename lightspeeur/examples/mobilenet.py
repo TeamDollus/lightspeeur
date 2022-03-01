@@ -118,7 +118,7 @@ if transfer_model:
         'DepthwiseConv2D': DepthwiseConv2D,
         'ReLU': ReLU
     }
-    model = tf.keras.models.load_model('mobilenet_transferred.h5', custom_objects=custom_objects)
+    model = tf.keras.models.load_model('mobilenet_v1_1.0_224_lightspeeur.h5', custom_objects=custom_objects)
 else:
     model = build_mobilenet(Input(shape=(224, 224, 3)))
 
