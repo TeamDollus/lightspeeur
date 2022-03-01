@@ -274,7 +274,7 @@ class ModelStageAdvisor:
         logger.info('Evaluation result:')
         logger.info('  Loss: {}'.format(loss))
         logger.info('  Metric: {}'.format(metric))
-        logger.info('If the metric or loss result are bad. You must fine-tune the model.')
+        logger.info('If the metric or loss result are bad, you must fine-tune the model.')
 
     def calibrate_relu(self, x, batch_size, steps_per_epoch, relu_calibration_sample_steps, checkpoint_path):
         relus = [layer for layer in self.model.layers if isinstance(layer, ReLU)]
