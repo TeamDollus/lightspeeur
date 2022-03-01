@@ -1,1 +1,2 @@
 include lightspeeur/drivers/specs/*.json
+graft tests
