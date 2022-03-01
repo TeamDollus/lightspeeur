@@ -191,6 +191,7 @@ class ModelStageAdvisor:
                 use_multiprocessing=False,
                 clip_bias=False,
                 relu_calibration_sample_steps=None,
+                fine_tune_folded_shape_model=False,
                 monitor='val_loss'):
 
         # Checkpoints
@@ -216,6 +217,8 @@ class ModelStageAdvisor:
             is_model_fusion = self.current_stage == LearningStage.MODEL_FUSION
             if is_model_fusion:
                 self.fold(x, y, batch_size, steps_per_epoch, clip_bias)
+                if not fine_tune_folded_shape_model:
+                    return
             else:
                 is_conv_quantization = self.current_stage == LearningStage.QUANTIZED_CONVOLUTION_TRAINING
                 is_activation_quantization = self.current_stage == LearningStage.QUANTIZED_ACTIVATION_TRAINING
@@ -223,16 +226,16 @@ class ModelStageAdvisor:
                 if is_conv_quantization or is_activation_quantization:
                     self.quantize(is_activation_quantization)
 
-                self.compile()
-                self.fit(x, y,
-                         batch_size, epochs,
-                         verbose, callbacks,
-                         validation_split, validation_data,
-                         shuffle,
-                         class_weight, sample_weight,
-                         initial_epoch, steps_per_epoch,
-                         validation_steps, validation_batch_size, validation_freq,
-                         max_queue_size, workers, use_multiprocessing)
+            self.compile()
+            self.fit(x, y,
+                     batch_size, epochs,
+                     verbose, callbacks,
+                     validation_split, validation_data,
+                     shuffle,
+                     class_weight, sample_weight,
+                     initial_epoch, steps_per_epoch,
+                     validation_steps, validation_batch_size, validation_freq,
+                     max_queue_size, workers, use_multiprocessing)
 
     def quantize(self, quantize_activation=False):
         eligible_types = QUANTIZABLE_CONVOLUTION
@@ -271,7 +274,7 @@ class ModelStageAdvisor:
         logger.info('Evaluation result:')
         logger.info('  Loss: {}'.format(loss))
         logger.info('  Metric: {}'.format(metric))
-        logger.info('If the metric or loss result are bad. You must fine-tune the model.')
+        logger.info('If the metric or loss result are bad, you must fine-tune the model.')
 
     def calibrate_relu(self, x, batch_size, steps_per_epoch, relu_calibration_sample_steps, checkpoint_path):
         relus = [layer for layer in self.model.layers if isinstance(layer, ReLU)]
@@ -351,6 +354,44 @@ class ModelStageAdvisor:
 
     def get_checkpoint_stage_dir(self, stage):
         return os.path.join(self.checkpoints_dir, 'stage-{}'.format(stage.value))
+
+    def fuse_convolutional_and_batch_norm_v0(self,
+                                             conv: Layer,
+                                             prev_relu_cap,
+                                             relu: ReLU,
+                                             batch_normalization=None):
+        if batch_normalization is not None and not isinstance(batch_normalization, BatchNormalization):
+            raise AttributeError('batch_normalization must be BatchNormalization')
+
+        conv_weights = conv.get_weights()
+        if batch_normalization is not None:
+            gamma, beta, mean, variance = batch_normalization.get_weights()
+            eps = batch_normalization.epsilon
+            kernel = conv_weights[0]
+
+            stddev = np.sqrt(variance + eps)
+            factor = gamma / stddev
+
+            # for depthwise convolution weights, reshape batch norm factor,
+            # so that multiplication of the factor is not broadcast to the last dimension
+            if kernel.shape[3] == 1:
+                factor = factor.reshape((1, 1, factor.shape[0], 1))
+
+            kernel *= factor
+            bias = beta - gamma / stddev * mean
+        else:
+            kernel = conv_weights[0]
+            bias = conv_weights[1]
+
+        # Fuse using ReLU caps
+        current_relu_cap = relu.get_weights()[0][0]  # relu_cap
+        max_activation = self.specification.max_activation(bits=relu.activation_bits)
+        gain_bias = max_activation / current_relu_cap
+        gain_kernel = prev_relu_cap / current_relu_cap
+
+        kernel *= gain_kernel
+        bias *= gain_bias
+        return kernel, bias
 
     def fuse_convolutional_and_batch_norm(self,
                                           conv: Layer,
@@ -440,9 +481,9 @@ class ModelStageAdvisor:
                 else:
                     prev_relu_cap = prev_relu_layers[-1].cap
 
-                kernel, bias = self.fuse_convolutional_and_batch_norm(conv,
-                                                                      prev_relu_cap,
-                                                                      relu, batch_normalization)
+                kernel, bias = self.fuse_convolutional_and_batch_norm_v0(conv,
+                                                                         prev_relu_cap,
+                                                                         relu, batch_normalization)
                 fused_conv_layers[conv.name] = (kernel, bias)
                 fused_relu_layers[relu.name] = self.specification.max_activation(relu.activation_bits)
 

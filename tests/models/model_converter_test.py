@@ -158,7 +158,7 @@ def check_model_data_generation(model, graph):
     converter = ModelConverter('2803', model, graph={model.name: graph}, debug=True)
 
     tmp_file = 'model_data.json'
-    converter.create_default_model_data(tmp_file, graph)
+    converter.create_default_model_data(converter.spec.find_proper_device(), tmp_file, graph)
 
     with open(tmp_file, 'r') as f:
         body = json.load(f)
