@@ -7,7 +7,7 @@ import numpy as np
 
 from functools import reduce
 from tensorflow.keras import Model
-from lightspeeur.drivers.specification import Specification
+from lightspeeur.drivers.specification import Specification, DeviceInfo
 from lightspeeur.drivers import Configurer, Driver
 from lightspeeur.layers import Conv2D, Conv2DTranspose, DepthwiseConv2D, MaxPooling2D, TopLeftPooling2D, ReLU
 from lightspeeur.layers.quantization import quantize_kernel, quantized_shift, compute_quantized_shift
@@ -52,23 +52,23 @@ class ModelConverter:
         results = []
         for graph_name, small_graph in self.graph.items():
             logger.info('Preparing conversion of {}'.format(graph_name))
-            layer_limits = self.spec.get_layer_limits()
-            if layer_limits is not None:
-                if len(small_graph) > layer_limits['major']:
-                    raise ValueError('Chip {} supports up to {} major layers'
-                                     .format(self.chip_id, layer_limits['major']))
+            device = self.spec.find_proper_device()
 
-                max_sublayers = max([len(x) for x in small_graph])
-                if max_sublayers > layer_limits['sub']:
-                    raise ValueError('Chip {} supports up to {} sub layers per major layer'
-                                     .format(self.chip_id, layer_limits['sub']))
+            if len(small_graph) > device.major_layer_limit:
+                raise ValueError('Chip {} supports up to {} major layers'
+                                 .format(self.chip_id, device.major_layer_limit))
 
-                total_layers = reduce(lambda res, value: res + len(value), small_graph, 0)
-                if total_layers > layer_limits['total']:
-                    raise ValueError('Chip {} supports up to {} layers in a row'
-                                     .format(self.chip_id, layer_limits['total']))
+            max_sublayers = max([len(x) for x in small_graph])
+            if max_sublayers > device.sub_layer_limit:
+                raise ValueError('Chip {} supports up to {} sub layers per major layer'
+                                 .format(self.chip_id, device.sub_layer_limit))
 
-            data_infos = self.convert_on_chip_graph(graph_name, small_graph)
+            total_layers = reduce(lambda res, value: res + len(value), small_graph, 0)
+            if total_layers > device.total_layer_limit:
+                raise ValueError('Chip {} supports up to {} layers in a row'
+                                 .format(self.chip_id, device.total_layer_limit))
+
+            data_infos = self.convert_on_chip_graph(device, graph_name, small_graph)
             # TODO: Really host layer required?
             for i, data_info in enumerate(data_infos):
                 model_def = self.update_model_definition(graph_name=graph_name,
@@ -101,7 +101,7 @@ class ModelConverter:
                 results.append(os.path.join(target_dir, outputs))
         return results
 
-    def convert_on_chip_graph(self, graph_name, small_graph):
+    def convert_on_chip_graph(self, device: DeviceInfo, graph_name, small_graph):
         kernels = np.array([])
         biases = np.array([])
         bit_shifts = []
@@ -149,7 +149,7 @@ class ModelConverter:
         self.working_files.append(kernels_filepath)
         self.working_files.append(biases_filepath)
 
-        dst_data_file = self.update_model_data(data_filepath, dst_data_filepath, bit_shifts, small_graph=small_graph)
+        dst_data_file = self.update_model_data(device, data_filepath, dst_data_filepath, bit_shifts, small_graph=small_graph)
         dst_chip_file = '{}_chip'.format(graph_name)
 
         self.working_files.append(dst_chip_file)
@@ -179,11 +179,11 @@ class ModelConverter:
                     self.working_files.append(configurer.get_work_dir())
         return data_info
 
-    def update_model_data(self, data_file, dst_data_file, new_shifts, small_graph=None):
+    def update_model_data(self, device: DeviceInfo, data_file, dst_data_file, new_shifts, small_graph=None):
         if not os.path.exists(data_file):
             if small_graph is None:
                 raise AttributeError('Graph is required when data file is not existed')
-            self.create_default_model_data(data_file, small_graph)
+            self.create_default_model_data(device, data_file, small_graph)
             pass
 
         with open(data_file, 'r') as f:
@@ -336,7 +336,7 @@ class ModelConverter:
 
                     conv['outputs'].append(outputs)
 
-    def create_default_model_data(self, data_file, small_graph):
+    def create_default_model_data(self, device: DeviceInfo, data_file, small_graph):
         layers = []
 
         sampling_poolings = 0
@@ -351,6 +351,8 @@ class ModelConverter:
 
             input_channels = None
             output_channels = None
+            input_image_size = None
+            output_image_size = None
             image_size = None
             coef_bits = None
 
@@ -373,6 +375,9 @@ class ModelConverter:
                     elif image_size != layer_image_size:
                         raise ValueError('All graph chunk must have same image size. {} != {}'
                                          .format(image_size, layer_image_size))
+
+                    input_image_size = layer.input.shape[1]
+                    output_image_size = layer.output.shape[1]
 
                     if coef_bits is None:
                         coef_bits = layer.bit_mask
@@ -405,6 +410,15 @@ class ModelConverter:
                 raise ValueError('Output channel information is not valid')
             if not image_size:
                 raise ValueError('Image size information is not valid')
+
+            if output_channels not in device.allowed_channels:
+                raise ValueError('Output channel size is not allowed on the current chip')
+
+            if input_image_size is not None and input_image_size not in device.allowed_input_size:
+                raise ValueError('Input image size is not allowed on the current chip')
+
+            if output_image_size is not None and output_image_size not in device.allowed_output_size:
+                raise ValueError('Output image size is not allowed on the current chip')
 
             num_sublayers = len(chunk) - excluded_layers
             if float_mode:
