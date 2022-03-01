@@ -2,7 +2,7 @@ from setuptools import find_packages
 from setuptools import setup
 
 setup(name='lightspeeur',
-      version='0.0.28',
+      version='0.1.0',
       description='Lightspeeur TensorFlow Mode Development Framework',
       url='https://github.com/TeamDollus/lightspeeur.git',
       author='OrigamiDream',
