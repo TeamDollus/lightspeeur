@@ -5,6 +5,7 @@ import shutil
 
 import numpy as np
 
+from typing import Union
 from functools import reduce
 from tensorflow.keras import Model
 from lightspeeur.drivers.specification import Specification, DeviceInfo
@@ -38,11 +39,16 @@ def require_residual_layers(layer):
 
 class ModelConverter:
 
-    def __init__(self, chip_id: str, model: Model, graph: dict, config_path='bin/libgticonfig2803.so', debug=False):
+    def __init__(self,
+                 chip_id: str, model: Model, graph: dict,
+                 mode: Union[str, int] = 'auto',
+                 config_path='bin/libgticonfig2803.so',
+                 debug=False):
         self.chip_id = chip_id
         self.spec = Specification(chip_id=chip_id)
         self.model = model
         self.graph = graph
+        self.mode = mode
         self.config_path = config_path
         self.debug = debug
         self.working_files = []
@@ -71,7 +77,8 @@ class ModelConverter:
             data_infos = self.convert_on_chip_graph(device, graph_name, small_graph)
             # TODO: Really host layer required?
             for i, data_info in enumerate(data_infos):
-                model_def = self.update_model_definition(graph_name=graph_name,
+                model_def = self.update_model_definition(device=device,
+                                                         graph_name=graph_name,
                                                          model_file='{}_model.json'.format(graph_name),
                                                          dst_model_file='{}_dst_model.json'.format(graph_name),
                                                          data_info=data_info)
@@ -203,9 +210,9 @@ class ModelConverter:
 
         return dst_data_file
 
-    def update_model_definition(self, graph_name, model_file, dst_model_file, data_info):
+    def update_model_definition(self, device: DeviceInfo, graph_name, model_file, dst_model_file, data_info):
         if not os.path.exists(model_file):
-            self.create_default_model_definition(graph_name, model_file)
+            self.create_default_model_definition(device, graph_name, model_file)
 
         with open(model_file, 'r') as f:
             body = json.load(f)
@@ -459,7 +466,7 @@ class ModelConverter:
         self.working_files.append(data_file)
         logger.info('Generated default model data file')
 
-    def create_default_model_definition(self, graph_name, model_file):
+    def create_default_model_definition(self, device: DeviceInfo, graph_name, model_file):
         latest_chunk = self.graph[graph_name][-1]
         output_shapes = (-1, 1, 1)  # channels, height, width
         float_mode = False
@@ -470,19 +477,31 @@ class ModelConverter:
                 output_shapes = (shape[-1], shape[-2], shape[-3])
             elif isinstance(layer, ReLU) and layer.activation_bits > 5:
                 float_mode = True
+            elif is_pooling(layer):
+                output_shapes = (output_shapes[0], output_shapes[1] // 2, output_shapes[2] // 2)
 
         if output_shapes[0] == -1:
             raise ValueError('The latest graph layer chunk does not contain proper output shapes')
+
+        if self.mode == 'auto':
+            img_size = output_shapes[1]
+            if img_size >= 14:
+                mode = 2
+            else:
+                mode = 5
+        else:
+            mode = int(self.mode)
 
         # multiple layers for multiple-chip mode (cascade mode)
         model_layer = {
             'data offset': 0,
             'device': {
                 'chip': self.chip_id,
+                'emmc delay': device.emmc_delay,
                 'name': None,
                 'type': 0
             },
-            'mode': 0,
+            'mode': mode,
             'name': 'cnn',
             'operation': 'GTICNN',
             'output channels': output_shapes[0],

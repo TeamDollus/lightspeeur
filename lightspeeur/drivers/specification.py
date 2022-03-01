@@ -10,6 +10,7 @@ class UpSampleFillingMode(Enum):
 
 
 SPEC_INFO = None
+SPEC_CHIP_ID = None
 
 
 class DeviceInfo:
@@ -17,7 +18,8 @@ class DeviceInfo:
     def __init__(self,
                  chip_id,
                  allowed_input_size, allowed_output_size, allowed_channels,
-                 major_layer_limit, sub_layer_limit):
+                 major_layer_limit, sub_layer_limit,
+                 emmc_delay):
 
         self.chip_id = chip_id
 
@@ -29,22 +31,33 @@ class DeviceInfo:
         self.sub_layer_limit = sub_layer_limit
         self.total_layer_limit = major_layer_limit * sub_layer_limit
 
+        self.emmc_delay = emmc_delay
+
 
 class Specification:
 
     REGISTERED_DEVICES = [
+        DeviceInfo('2801',
+                   allowed_input_size=[448, 224, 112, 56, 28, 14],
+                   allowed_output_size=[448, 224, 112, 56, 28, 14],
+                   allowed_channels=[16, 32, 64, 128, 256, 512, 1024],
+                   major_layer_limit=6,
+                   sub_layer_limit=12,
+                   emmc_delay=5000),
         DeviceInfo('2803',
                    allowed_input_size=[448, 224, 112, 56, 28, 14],
                    allowed_output_size=[448, 224, 112, 56, 28, 14],
                    allowed_channels=[16, 32, 64, 128, 256, 512, 1024],
                    major_layer_limit=6,
-                   sub_layer_limit=12),
+                   sub_layer_limit=12,
+                   emmc_delay=12000),
         DeviceInfo('5801',
                    allowed_input_size=[896, 448, 224, 112, 56, 28, 14],
                    allowed_output_size=[896, 448, 224, 112, 56, 28, 14, 7],
                    allowed_channels=[4, 8, 16, 32, 64, 128, 256, 512, 1024],
                    major_layer_limit=7,
-                   sub_layer_limit=12)
+                   sub_layer_limit=12,
+                   emmc_delay=12000)
     ]
 
     DEFAULT_IMAGE_SIZE = 224
@@ -73,12 +86,13 @@ class Specification:
     def __init__(self, chip_id):
         self.chip_id = str(chip_id)
 
-        global SPEC_INFO
-        if SPEC_INFO is None:
+        global SPEC_INFO, SPEC_CHIP_ID
+        if SPEC_INFO is None or SPEC_CHIP_ID != chip_id:
             spec_path = os.path.join(os.path.dirname(__file__), 'specs', f'{chip_id}_spec.json')
             with open(os.path.realpath(spec_path), 'r') as f:
                 info = json.load(f)
             SPEC_INFO = info
+            SPEC_CHIP_ID = chip_id
         self.info = SPEC_INFO
 
     def find_proper_device(self) -> DeviceInfo:
