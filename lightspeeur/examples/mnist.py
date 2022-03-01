@@ -1,114 +1,109 @@
 import random
-import time
+import platform
 
-from tensorflow.keras import datasets, layers as l, Model
-from tensorflow.keras.models import load_model
-from lightspeeur.layers import Conv2D, MaxPooling2D, ReLU, DepthwiseConv2D
+import numpy as np
+
+from tensorflow.keras import Model, datasets, layers
+from lightspeeur.layers import Conv2D, MaxPooling2D, ReLU
 from lightspeeur.models import ModelStageAdvisor, ModelConverter
 from lightspeeur.drivers import Driver, Model as LightspeeurModel
+from lightspeeur.layers.quantization import quantize_image
 
 
-def current_milliseconds():
-    return round(time.time() * 1000)
-
+CHIP_ID = '2803'
+BATCH_SIZE = 64
+EPOCHS = 1
+RELU_CALIBRATION_STEPS = 128
+EVALUATION_STEPS = 10
 
 (train_images, train_labels), (test_images, test_labels) = datasets.mnist.load_data()
 
 train_images = train_images.reshape((60000, 28, 28, 1))
 test_images = test_images.reshape((10000, 28, 28, 1))
 
-train_images, test_images = train_images / 255., test_images / 255.
+# Lightspeeur model does not support single channel input. Minimum channel size is 3
+train_images = np.concatenate((train_images, train_images, train_images), axis=-1)
+test_images = np.concatenate((test_images, test_images, test_images), axis=-1)
 
-chip_id = '2803'
-train_model = False
+# Quantize the image to simulate image input
+# NOTE: DO NOT quantize test_images. the quantization process will be automatically performed in the chip.
+train_images = quantize_image(train_images)
 
-if train_model:
-    inputs = l.Input(shape=(28, 28, 1))
 
-    x = Conv2D(32, (3, 3), chip_id, bit_mask=12, quantize=False, name='conv1/conv')(inputs)
-    x = l.BatchNormalization(name='conv1/batch_norm')(x)
-    x = ReLU(chip_id, quantize=False, name='conv1/relu')(x)
-    x = MaxPooling2D()(x)
+def build_simple_conv_model(folded_shape=False):
+    inputs = layers.Input(shape=(28, 28, 3))
 
-    x = Conv2D(64, (3, 3), chip_id, bit_mask=12, quantize=False, name='conv2/conv')(x)
-    x = ReLU(chip_id, quantize=False, name='conv2/relu')(x)
-    x = MaxPooling2D()(x)
+    x = inputs
+    for index, channel_size in enumerate([32, 64]):
+        x = Conv2D(channel_size, (3, 3), CHIP_ID,
+                   bit_mask=2, quantize=folded_shape, use_bias=folded_shape,
+                   name='conv{}/conv'.format(index))(x)
+        if not folded_shape:
+            x = layers.BatchNormalization(name='conv{}/batch_norm'.format(index))(x)
+        x = ReLU(CHIP_ID, quantize=folded_shape, name='conv{}/relu'.format(index))(x)
+        x = MaxPooling2D(name='conv{}/pool'.format(index))(x)
 
-    x = Conv2D(32, (3, 3), chip_id, bit_mask=12, quantize=False, name='conv3/conv')(x)
-    x = l.BatchNormalization(name='conv3/batch_norm')(x)
-    x = ReLU(chip_id, quantize=False, name='conv3/relu')(x)
-    x = MaxPooling2D()(x)
+    x = layers.Flatten(name='flatten')(x)
+    x = layers.Dense(64, activation='relu', name='fc')(x)
+    x = layers.Dense(10, activation='softmax', name='digit')(x)
 
-    x = l.Flatten()(x)
-    x = l.Dense(64, activation='relu')(x)
-    x = l.Dense(10, activation='softmax')(x)
-    outputs = x
-    model = Model(inputs=inputs, outputs=outputs, name='MNIST_CNN')
+    full_model = Model(inputs=inputs, outputs=x, name='simple_conv_model')
+    return full_model
 
-    compile_options = {
-        'optimizer': 'adam',
-        'loss': 'sparse_categorical_crossentropy',
-        'metrics': ['accuracy']
-    }
-    advisor = ModelStageAdvisor(chip_id=chip_id, model=model, compile_options=compile_options)
 
-    while True:
-        res = advisor.advance_stage()
-        if res:
-            advisor.propose(train_images, train_labels, epochs=1, validation_split=0.2, batch_size=64)
-        else:
-            break
+model = build_simple_conv_model()
+# Folded shape model must be provided for better performance after model fusion
+folded_model = build_simple_conv_model(folded_shape=True)
+print(model.summary())
 
-    advisor.get_model().save('lightspeeur_mnist.h5')
-    model = advisor.get_model()
-else:
-    custom_objects = {
-        'Conv2D': Conv2D,
-        'DepthwiseConv2D': DepthwiseConv2D,
-        'ReLU': ReLU
-    }
-    model = load_model('lightspeeur_mnist.h5', custom_objects=custom_objects)
+compile_options = {
+    'optimizer': 'adam',
+    'loss': 'sparse_categorical_crossentropy',
+    'metrics': ['accuracy']
+}
+advisor = ModelStageAdvisor(CHIP_ID, model, compile_options, folded_shape_model=folded_model, cleanup_checkpoints=True)
+while True:
+    res = advisor.advance_stage()
+    if res:
+        advisor.propose(train_images,
+                        train_labels,
+                        epochs=EPOCHS,
+                        validation_split=0.2,
+                        batch_size=BATCH_SIZE,
+                        relu_calibration_sample_steps=RELU_CALIBRATION_STEPS,
+                        fine_tune_folded_shape_model=False)
+    else:
+        break
 
-# Conversion
+advisor.get_model().save('mnist_v2.h5')
 
-now = current_milliseconds()
-graph_name = 'conv'
+if platform.system() != 'Linux':
+    raise NotImplementedError('Windows and macOS are not supported')
+
+final_model = advisor.get_model()
 
 driver = Driver()
-converter = ModelConverter(chip_id=chip_id,
-                           model=model,
-                           graph={
-                               graph_name: [['conv1/conv', 'conv1/relu'],
-                                            ['conv2/conv', 'conv2/relu'],
-                                            ['conv3/conv', 'conv3/relu']]
-                           },
-                           config_path='bin/libgticonfig2803.so',
-                           debug=True)
+converter = ModelConverter(CHIP_ID, final_model, graph={
+    'simple_conv': [['conv0/conv', 'conv0/relu', 'conv0/pool'],
+                    ['conv1/conv', 'conv1/relu', 'conv1/pool']]
+}, debug=True)
 
-results = converter.convert(driver)
-result = results[0]
-print('Time elapsed for conversion: {}ms'.format(current_milliseconds() - now))
+model_path = converter.convert(driver)[0]
 
-# Evaluate
+off_chip_model = Model(inputs=final_model.get_layer('flatten').input, outputs=final_model.output, name='off_chip_model')
+print(off_chip_model.summary())
 
-now = current_milliseconds()
-driver = Driver()
-lightspeeur_model = LightspeeurModel(driver, chip_id, result)
-samples = 5
-
+lightspeeur_model = LightspeeurModel(driver, CHIP_ID, model_path)
 with lightspeeur_model:
-    # lightspeeur model uses __enter__() to load a libraries
-    print('Time elapsed for loading a model: {}ms'.format(current_milliseconds() - now))
-
-    for _ in range(samples):
-        now = current_milliseconds()
-        sample_index = random.randint(0, test_images.shape[0])  # 0 ~ 10000
+    for i in range(EVALUATION_STEPS):
+        sample_index = random.randint(0, test_images.shape[0])
 
         sample_image = test_images[sample_index]
         sample_label = test_labels[sample_index]
 
         res = lightspeeur_model.evaluate(sample_image)
-        print()
-        print('Time elapsed for evaluate an image: {}ms'.format(current_milliseconds() - now))
-        print('Result shape: {}'.format(res.shape))
+        predicted = off_chip_model(res)
 
+        print()
+        print('Actual: {}'.format(sample_label))
+        print('Predicted: {}'.format(np.argmax(predicted[0])))
