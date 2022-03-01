@@ -42,6 +42,11 @@ class Specification:
             'major': 6,
             'sub': 12,
             'total': 72
+        },
+        '5801': {
+            'major': 7,
+            'sub': 12,
+            'total': 84
         }
     }
 
