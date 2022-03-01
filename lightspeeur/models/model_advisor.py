@@ -11,7 +11,7 @@ from tqdm import tqdm
 from tensorflow.keras import Model, backend as K
 from tensorflow.keras.metrics import Metric
 from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.layers import BatchNormalization, Layer
+from tensorflow.keras.layers import BatchNormalization, Layer, Dense
 from lightspeeur.layers import Conv2D, Conv2DTranspose, DepthwiseConv2D, ReLU
 from lightspeeur.drivers import Specification
 from .model_reorganizer import reorganize_layers, get_inbound_layers, organize_layer
@@ -491,10 +491,14 @@ class ModelStageAdvisor:
 
         logger.info('{} layer groups will be fused.'.format(num_fusing_layers))
 
+        last_relu_layer = None
         rebuilt_layers = []
         for layer in src_model.layers:
             if isinstance(layer, BatchNormalization):
                 continue
+
+            if isinstance(layer, ReLU):
+                last_relu_layer = layer
 
             if layer.name in fused_conv_layers:
                 # create a new conv layer
@@ -512,9 +516,29 @@ class ModelStageAdvisor:
             else:
                 rebuilt_layers.append(layer)
 
+        dense_layers = []
+        if last_relu_layer is not None:
+            dense_layers = self.find_next_first_dense_layers(last_relu_layer)
+            logger.info('Next dense layers to be scaled: {}'.format([dense.name for dense in dense_layers]))
+
         new_model = reorganize_layers(src_model.name, rebuilt_layers, popped_layers)
         for layer_name, (kernel, bias) in fused_conv_layers.items():
             new_model.get_layer(layer_name).set_weights([kernel, bias])
+
+        if last_relu_layer is not None:
+            max_cap = self.specification.max_activation(last_relu_layer.activation_bits)
+            kernel_scale = max_cap / last_relu_layer.cap
+            logger.info('Dense kernel scale: {} ({} / {})'.format(kernel_scale, max_cap, last_relu_layer.cap))
+            for dense_layer in dense_layers:
+                layer = new_model.get_layer(dense_layer.name)
+
+                old_weights = dense_layer.get_weights()
+                kernel = old_weights[0] / kernel_scale
+                if len(old_weights) == 2:
+                    new_weights = [kernel, old_weights[1]]
+                else:
+                    new_weights = [kernel]
+                layer.set_weights(new_weights)
 
         for layer_name, relu_cap in fused_relu_layers.items():
             layer = new_model.get_layer(layer_name)
@@ -522,3 +546,16 @@ class ModelStageAdvisor:
             layer.set_weights([tf.constant([relu_cap], dtype=tf.float32)])
 
         return new_model
+
+    def find_next_first_dense_layers(self, search_from):
+        dense_layers = []
+
+        outbounds = search_from.outbound_nodes
+        for node in outbounds:
+            layer = node.outbound_layer
+            if isinstance(layer, Dense):
+                dense_layers.append(layer)
+            else:
+                dense_layers += self.find_next_first_dense_layers(layer)
+
+        return dense_layers
