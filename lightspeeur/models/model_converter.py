@@ -64,12 +64,16 @@ class ModelConverter:
                 raise ValueError('Chip {} supports up to {} major layers'
                                  .format(self.chip_id, device.major_layer_limit))
 
-            max_sublayers = max([len(x) for x in small_graph])
+            # only convolutional layers are sublayers (pooling and activation layers are excluded)
+            layer_graph = [[self.model.get_layer(layer_name) for layer_name in layer_names] for layer_names in small_graph]
+            sublayers = [[layer for layer in layers if is_convolutional(layer)] for layers in layer_graph]
+
+            max_sublayers = max([len(x) for x in sublayers])
             if max_sublayers > device.sub_layer_limit:
                 raise ValueError('Chip {} supports up to {} sub layers per major layer'
                                  .format(self.chip_id, device.sub_layer_limit))
 
-            total_layers = reduce(lambda res, value: res + len(value), small_graph, 0)
+            total_layers = reduce(lambda res, value: res + len(value), sublayers, 0)
             if total_layers > device.total_layer_limit:
                 raise ValueError('Chip {} supports up to {} layers in a row'
                                  .format(self.chip_id, device.total_layer_limit))
