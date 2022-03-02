@@ -43,7 +43,7 @@ class ModelConverter:
                  chip_id: str, model: Model, graph: dict,
                  mode: Union[str, int] = 'auto',
                  config_path='bin/libgticonfig2803.so',
-                 debug=False):
+                 debug=False, override_device_spec=False):
         self.chip_id = chip_id
         self.spec = Specification(chip_id=chip_id)
         self.model = model
@@ -51,6 +51,7 @@ class ModelConverter:
         self.mode = mode
         self.config_path = config_path
         self.debug = debug
+        self.override_device_spec = override_device_spec
         self.working_files = []
 
     def convert(self, driver: Driver):
@@ -64,12 +65,16 @@ class ModelConverter:
                 raise ValueError('Chip {} supports up to {} major layers'
                                  .format(self.chip_id, device.major_layer_limit))
 
-            max_sublayers = max([len(x) for x in small_graph])
+            # only convolutional layers are sublayers (pooling and activation layers are excluded)
+            layer_graph = [[self.model.get_layer(layer_name) for layer_name in layer_names] for layer_names in small_graph]
+            sublayers = [[layer for layer in layers if is_convolutional(layer)] for layers in layer_graph]
+
+            max_sublayers = max([len(x) for x in sublayers])
             if max_sublayers > device.sub_layer_limit:
                 raise ValueError('Chip {} supports up to {} sub layers per major layer'
                                  .format(self.chip_id, device.sub_layer_limit))
 
-            total_layers = reduce(lambda res, value: res + len(value), small_graph, 0)
+            total_layers = reduce(lambda res, value: res + len(value), sublayers, 0)
             if total_layers > device.total_layer_limit:
                 raise ValueError('Chip {} supports up to {} layers in a row'
                                  .format(self.chip_id, device.total_layer_limit))
@@ -418,14 +423,15 @@ class ModelConverter:
             if not image_size:
                 raise ValueError('Image size information is not valid')
 
-            if output_channels not in device.allowed_channels:
-                raise ValueError('Output channel size is not allowed on the current chip')
+            if not self.override_device_spec:
+                if output_channels not in device.allowed_channels:
+                    raise ValueError('Output channel size is not allowed on the current chip')
 
-            if input_image_size is not None and input_image_size not in device.allowed_input_size:
-                raise ValueError('Input image size is not allowed on the current chip')
+                if input_image_size is not None and input_image_size not in device.allowed_input_size:
+                    raise ValueError('Input image size is not allowed on the current chip')
 
-            if output_image_size is not None and output_image_size not in device.allowed_output_size:
-                raise ValueError('Output image size is not allowed on the current chip')
+                if output_image_size is not None and output_image_size not in device.allowed_output_size:
+                    raise ValueError('Output image size is not allowed on the current chip')
 
             num_sublayers = len(chunk) - excluded_layers
             if float_mode:

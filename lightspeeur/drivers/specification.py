@@ -45,8 +45,8 @@ class Specification:
                    sub_layer_limit=12,
                    emmc_delay=5000),
         DeviceInfo('2803',
-                   allowed_input_size=[448, 224, 112, 56, 28, 14],
-                   allowed_output_size=[448, 224, 112, 56, 28, 14],
+                   allowed_input_size=[448, 224, 112, 56, 28, 14, 7],  # no mention about 7x7 input, but samples exists
+                   allowed_output_size=[448, 224, 112, 56, 28, 14, 7],  # 7x7 output is allowed with fc77_decode
                    allowed_channels=[16, 32, 64, 128, 256, 512, 1024],
                    major_layer_limit=6,
                    sub_layer_limit=12,
