@@ -489,6 +489,8 @@ class ModelConverter:
                 mode = 2
             else:
                 mode = 5
+        elif isinstance(self.mode, int):
+            mode = self.mode
         else:
             mode = int(self.mode)
 
