@@ -151,11 +151,17 @@ class ModelStageAdvisor:
         if self.current_stage is None:
             self.current_stage = LearningStage.FULL_FLOATING_POINT_TRAINING
         elif self.current_stage == LearningStage.MODEL_FUSION:
+            self.load_weights_from_checkpoints(LearningStage.MODEL_FUSION)
             logger.info('All stages have finished')
             return False
         else:
             self.current_stage = LearningStage(self.current_stage.value + 1)
 
+        self.load_weights_from_checkpoints(previous_stage)
+        logger.info('Next stage is {}'.format(stage_name(self.current_stage)))
+        return True
+
+    def load_weights_from_checkpoints(self, previous_stage):
         if previous_stage is not None:
             logger.info('Previous stage was {}'.format(stage_name(previous_stage)))
             stage_dir = self.get_checkpoint_stage_dir(previous_stage)
@@ -165,9 +171,6 @@ class ModelStageAdvisor:
                 logger.info('Loaded best checkpoints from previous stage')
             else:
                 logger.info('Checkpoints from previous stage is not available. Skipped.')
-
-        logger.info('Next stage is {}'.format(stage_name(self.current_stage)))
-        return True
 
     def propose(self,
                 x=None,
