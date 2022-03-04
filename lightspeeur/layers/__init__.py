@@ -18,3 +18,13 @@ from lightspeeur.layers.quantization import QuantizableLayer, quantize_image
 
 # Constraints
 from lightspeeur.layers.constraints import ClippingBiasConstraint
+
+
+custom_objects = {
+    'ReLU': ReLU,
+    'Conv2D': Conv2D,
+    'Conv2DTranspose': Conv2DTranspose,
+    'DepthwiseConv2D': DepthwiseConv2D,
+    'MaxPooling2D': MaxPooling2D,
+    'TopLeftPooling2D': TopLeftPooling2D
+}
