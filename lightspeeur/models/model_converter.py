@@ -403,6 +403,11 @@ class ModelConverter:
                         layer_info['upsample_enable'] = True
                     one_coefficients.append(1 if layer.kernel_size == (1, 1) else 0)
                     conv_included = True
+
+                    # sampling pooling with strides == 2 convolutional layers
+                    if layer.strides[0] == 2:
+                        sampling_poolings += 1
+                        layer_info['pooling'] = True
                     continue
                 if is_pooling(layer):
                     if isinstance(layer, TopLeftPooling2D):
