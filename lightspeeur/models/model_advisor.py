@@ -85,6 +85,39 @@ class ModelStageAdvisor:
         if self.cleanup_checkpoints and os.path.exists(self.checkpoints_dir):
             shutil.rmtree(self.checkpoints_dir)
 
+        self.validate_folded_shape_model()
+
+    def validate_folded_shape_model(self):
+        if self.folded_shape_model is None:
+            return
+
+        analog_conv = []
+        not_folded = []
+        analog_relu = []
+        for layer in self.folded_shape_model.layers:
+            if is_eligible(layer, QUANTIZABLE_CONVOLUTION):
+                if not layer.quantize:
+                    analog_conv.append(layer.name)
+            elif is_eligible(layer, QUANTIZABLE_ACTIVATION):
+                if not layer.quantize:
+                    analog_relu.append(layer.name)
+            elif isinstance(layer, BatchNormalization):
+                not_folded.append(layer.name)
+
+        messages = []
+        if len(analog_conv) > 0:
+            messages.append('{} convolutional layers are not quantized. layer names: {}'
+                            .format(len(analog_conv), ', '.join(analog_conv)))
+        if len(analog_relu) > 0:
+            messages.append('{} activation layers are not quantized. layer names: {}'
+                            .format(len(analog_relu), ', '.join(analog_relu)))
+        if len(not_folded) > 0:
+            messages.append('{} batch normalization layer have been found. layer names: {}'
+                            .format(len(not_folded), ', '.join(not_folded)))
+        if len(messages) > 0:
+            messages.insert(0, '{} problems have been found in the folded shape model:'.format(len(messages)))
+            raise ValueError('\n'.join(messages))
+
     def invalidate_list_compile_option_recursively(self, array):
         for v in array:
             if isinstance(v, Metric):
