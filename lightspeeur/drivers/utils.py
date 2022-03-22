@@ -21,4 +21,3 @@ def constant_initializer(initializer, default_initializer):
         return initializer
     else:
         return tf.constant_initializer(initializer)
-
