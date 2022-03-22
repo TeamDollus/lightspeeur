@@ -3,39 +3,83 @@ import json
 import pytest
 
 from lightspeeur.models import ModelConverter
-from lightspeeur.models.model_converter import is_convolutional, is_pooling
 from lightspeeur.drivers import UpSampleFillingMode
-from lightspeeur.layers import Conv2D, Conv2DTranspose, DepthwiseConv2D, ReLU, MaxPooling2D, TopLeftPooling2D
+from lightspeeur.layers import Conv2D, Conv2DTranspose, ReLU, MaxPooling2D, TopLeftPooling2D
 from tensorflow.keras import Model, layers
 
 
-def build_simple_conv_model():
+def model_unlike_image_size():
+    # there are 2 max pooling layer in a single major layer
     inputs = layers.Input(shape=(28, 28, 1))
     x = inputs
-    # on-chip layers
-    filters = [32, 64, 128]
-    graph = []
-    for i in range(3):
-        chunk = ['conv{}_conv', 'conv{}_relu', 'conv{}_pooling']
-        chunk = [name.format(i) for name in chunk]
-
-        x = Conv2D(filters[i], (3, 3), '2803', (1, 1), use_bias=False, bit_mask=12, name=chunk[0])(x)
-        x = ReLU('2803', name=chunk[1])(x)
-        x = MaxPooling2D(name=chunk[2])(x)
-
-        graph.append(chunk)
-
-    # off-chip layers
+    x = Conv2D(16, (3, 3), '2803', use_bias=False, bit_mask=12, name='block1/conv')(x)
+    x = ReLU('2803', name='block1/relu')(x)
+    x = MaxPooling2D(name='block1/pool')(x)
+    x = Conv2D(32, (3, 3), '2803', use_bias=False, bit_mask=12, name='block2/conv')(x)
+    x = ReLU('2803', name='block2/relu')(x)
+    x = MaxPooling2D(name='block2/pool')(x)
     x = layers.Flatten()(x)
-    x = layers.Dense(1024, activation='relu')(x)
     x = layers.Dense(10, activation='softmax')(x)
+    model = Model(inputs=inputs, outputs=x, name='unlike_image_size')
+    return model, [['block1/conv', 'block1/relu', 'block1/pool',
+                    'block2/conv', 'block2/relu', 'block2/pool']]
 
-    model = Model(inputs=inputs, outputs=x, name='simple_conv_model')
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-    return model, graph
+
+def model_unlike_coefficient_bit_size():
+    # `block1/conv1` have 12 of bit mask size, `block1/conv2` have 8 of bit mask size
+    inputs = layers.Input(shape=(28, 28, 1))
+    x = inputs
+    x = Conv2D(16, (3, 3), '2803', use_bias=False, bit_mask=12, name='block1/conv1')(x)
+    x = ReLU('2803', name='block1/relu1')(x)
+    x = Conv2D(16, (3, 3), '2803', use_bias=False, bit_mask=8, name='block1/conv2')(x)
+    x = ReLU('2803', name='block1/relu2')(x)
+    x = MaxPooling2D(name='block1/pool')(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(10, activation='softmax')(x)
+    model = Model(inputs=inputs, outputs=x, name='unlike_coefficient_bit_size')
+    return model, [['block1/conv1', 'block1/relu1', 'block1/conv2', 'block2/relu2', 'block1/pool']]
 
 
-def build_simple_upsample_conv_model():
+def model_convolutional_layer_not_included():
+    # no convolutional layer in small graph chunk
+    inputs = layers.Input(shape=(28, 28, 1))
+    x = inputs
+    x = MaxPooling2D(name='block/pool')(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(10, activation='softmax')(x)
+    model = Model(inputs=inputs, outputs=x, name='convolutional_layer_not_included')
+    return model, [['block/pool']]
+
+
+def model_2803_invalid_model_input_size():
+    # 128x128 -> 64x64
+    inputs = layers.Input(shape=(128, 128, 1))
+    x = inputs
+    x = Conv2D(16, (3, 3), '2803', use_bias=False, bit_mask=12, name='block/conv')(x)
+    x = ReLU('2803', name='block/relu')(x)
+    x = MaxPooling2D(name='block/pool')(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(10, activation='softmax')(x)
+    model = Model(inputs=inputs, outputs=x, name='2803_invalid_model_input_size')
+    return model, [['block/conv', 'block/relu', 'block/pool']]
+
+
+def model_2803_invalid_model_output_size():
+    # 448x448 -> 896x896
+    inputs = layers.Input(shape=(448, 448, 1))
+    x = inputs
+    x = Conv2DTranspose(16, (3, 3), '2803',
+                        upsample_filling_mode=UpSampleFillingMode.ZERO,
+                        use_bias=False, bit_mask=12, name='block/upsample')(x)
+    x = ReLU('2803', name='block/relu')(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(10, activation='softmax')(x)
+    model = Model(inputs=inputs, outputs=x, name='2803_invalid_model_output_size')
+    return model, [['block/upsample', 'block/relu']]
+
+
+def model_2803_too_many_major_layers():
+    # 2803 supports up to 6 major layers, but the model have 7 major layers
     inputs = layers.Input(shape=(224, 224, 1))
     x = inputs
 
@@ -46,7 +90,7 @@ def build_simple_upsample_conv_model():
               (64, 2, False, False),
               (32, 2, True, False),
               (16, 2, True, False),
-              (4, 2, False, False)]
+              (16, 2, False, False)]
 
     def _conv_block(block_inputs, filters, upsample=False, name='conv2d'):
         names = []
@@ -85,92 +129,62 @@ def build_simple_upsample_conv_model():
     x = layers.Dense(4096, name='activation')(x)
     x = layers.Dense(10, name='softmax')(x)
 
-    model = Model(inputs=inputs, outputs=x, name='simple_upsample_conv')
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    model = Model(inputs=inputs, outputs=x, name='2803_too_many_major_layers')
     return model, graph
 
 
-def check_model_sameness(model, graph, body):
-    for layer_info in body['layer']:
-        chunk = graph[layer_info['major_layer'] - 1]
+def model_2803_too_many_sub_layers():
+    # 2803 supports up to 12 sublayers in a single major layer
+    inputs = layers.Input(shape=(28, 28, 1))
+    x = inputs
+    chunk = []
+    for i in range(13):
+        conv_name = 'block/conv{}'.format(i)
+        relu_name = 'block/relu{}'.format(i)
+        chunk.append(conv_name)
+        x = Conv2D(64, (3, 3), '2803',
+                   use_bias=False, bit_mask=12, name=conv_name)(x)
+        x = ReLU('2803', name=relu_name)(x)
+    pool_name = 'block/pool'
+    chunk.append(pool_name)
 
-        coef_bits = []
-        num_sublayers = 0
-        pooling = False
-        depthwise_conv = False
-        transpose_conv = False
-        image_size = None
-        input_channels, output_channels = None, None
+    x = MaxPooling2D(name=pool_name)(x)
+    x = layers.Flatten()(x)
+    x = layers.Dense(10, name='softmax')(x)
 
-        for i, layer_name in enumerate(chunk):
-            layer = model.get_layer(name=layer_name)
-            if is_convolutional(layer):
-                if input_channels is None:
-                    input_channels = layer.input.shape[-1]
-                output_channels = layer.output.shape[-1]
-
-                if isinstance(layer, Conv2DTranspose):
-                    layer_image_size = layer.output.shape[1]
-                else:
-                    layer_image_size = layer.input.shape[1]
-                if image_size is None:
-                    image_size = layer_image_size
-                else:
-                    assert image_size == layer_image_size
-
-                coef_bits.append(layer.bit_mask)
-                num_sublayers += 1
-
-                if isinstance(layer, DepthwiseConv2D):
-                    depthwise_conv = True
-                elif isinstance(layer, Conv2DTranspose):
-                    transpose_conv = True
-
-            elif is_pooling(layer):
-                pooling = True
-                assert i == len(chunk) - 1  # the pooling layer must be at the end of the major layer
-
-        assert layer_info['image_size'] == image_size
-        assert layer_info['input_channels'] == input_channels
-        assert layer_info['output_channels'] == output_channels
-
-        assert len(set(coef_bits)) == 1  # only one bit mask can be existed
-        assert layer_info['coef_bits'] == set(coef_bits).pop()  # the bit mask must equals with coef_bits
-        assert layer_info['sublayer_number'] == num_sublayers  # number of sublayers are must equal
-        if layer_info.get('pooling'):
-            assert layer_info['pooling'] == pooling
-        else:
-            assert not pooling
-
-        if layer_info.get('depth_enable'):
-            assert layer_info['depth_enable'] == depthwise_conv
-        else:
-            assert not depthwise_conv
-
-        if layer_info.get('upsample_enable'):
-            assert layer_info['upsample_enable'] == transpose_conv
-        else:
-            assert not transpose_conv
-    return True
+    model = Model(inputs=inputs, outputs=x, name='2803_too_many_sub_layers')
+    return model, [chunk]
 
 
-def check_model_data_generation(model, graph):
+def test_model_conversion():
+    assert evaluate_model_availability(model_unlike_image_size(), ValueError)
+    assert evaluate_model_availability(model_unlike_coefficient_bit_size(), ValueError)
+    assert evaluate_model_availability(model_convolutional_layer_not_included(), ValueError)
+    assert evaluate_model_availability(model_2803_invalid_model_input_size(), ValueError)
+    assert evaluate_model_availability(model_2803_invalid_model_output_size(), ValueError)
+    assert evaluate_model_availability(model_2803_too_many_major_layers(), ValueError)
+    assert evaluate_model_availability(model_2803_too_many_sub_layers(), ValueError)
+
+
+def evaluate_model_availability(model_graph, error_type=None):
+    model, graph = model_graph
     converter = ModelConverter('2803', model, graph={model.name: graph}, debug=True)
+    filename = 'model_{}.json'.format(model.name)
 
-    tmp_file = 'model_data.json'
-    converter.create_default_model_data(converter.spec.find_proper_device(), tmp_file, graph)
+    def gen():
+        device = converter.spec.find_proper_device()
+        converter.check_model_graph_spec(graph, device)
+        converter.create_default_model_data(device, filename, graph)
 
-    with open(tmp_file, 'r') as f:
-        body = json.load(f)
+    if error_type is not None:
+        with pytest.raises(error_type):
+            gen()
+    else:
+        gen()
 
-    assert check_model_sameness(model, graph, body)
-    os.remove(tmp_file)
+    if os.path.exists(filename):
+        os.remove(filename)
     return True
-
-
-def test_model_data_generation():
-    assert check_model_data_generation(*build_simple_conv_model())
-    assert check_model_data_generation(*build_simple_upsample_conv_model())
 
 
 if __name__ == '__main__':

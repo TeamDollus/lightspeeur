@@ -54,6 +54,25 @@ class ModelConverter:
         self.override_device_spec = override_device_spec
         self.working_files = []
 
+    def check_model_graph_spec(self, small_graph, device):
+        if len(small_graph) > device.major_layer_limit:
+            raise ValueError('Chip {} supports up to {} major layers'
+                             .format(self.chip_id, device.major_layer_limit))
+
+        # only convolutional layers are sublayers (pooling and activation layers are excluded)
+        layer_graph = [[self.model.get_layer(layer_name) for layer_name in layer_names] for layer_names in small_graph]
+        sublayers = [[layer for layer in layers if is_convolutional(layer)] for layers in layer_graph]
+
+        max_sublayers = max([len(x) for x in sublayers])
+        if max_sublayers > device.sub_layer_limit:
+            raise ValueError('Chip {} supports up to {} sub layers per major layer'
+                             .format(self.chip_id, device.sub_layer_limit))
+
+        total_layers = reduce(lambda res, value: res + len(value), sublayers, 0)
+        if total_layers > device.total_layer_limit:
+            raise ValueError('Chip {} supports up to {} layers in a row'
+                             .format(self.chip_id, device.total_layer_limit))
+
     def convert(self, driver: Driver):
         self.working_files = []
         results = []
@@ -61,23 +80,7 @@ class ModelConverter:
             logger.info('Preparing conversion of {}'.format(graph_name))
             device = self.spec.find_proper_device()
 
-            if len(small_graph) > device.major_layer_limit:
-                raise ValueError('Chip {} supports up to {} major layers'
-                                 .format(self.chip_id, device.major_layer_limit))
-
-            # only convolutional layers are sublayers (pooling and activation layers are excluded)
-            layer_graph = [[self.model.get_layer(layer_name) for layer_name in layer_names] for layer_names in small_graph]
-            sublayers = [[layer for layer in layers if is_convolutional(layer)] for layers in layer_graph]
-
-            max_sublayers = max([len(x) for x in sublayers])
-            if max_sublayers > device.sub_layer_limit:
-                raise ValueError('Chip {} supports up to {} sub layers per major layer'
-                                 .format(self.chip_id, device.sub_layer_limit))
-
-            total_layers = reduce(lambda res, value: res + len(value), sublayers, 0)
-            if total_layers > device.total_layer_limit:
-                raise ValueError('Chip {} supports up to {} layers in a row'
-                                 .format(self.chip_id, device.total_layer_limit))
+            self.check_model_graph_spec(small_graph, device)
 
             data_infos = self.convert_on_chip_graph(device, graph_name, small_graph)
             # TODO: Really host layer required?
