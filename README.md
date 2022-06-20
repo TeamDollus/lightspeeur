@@ -43,13 +43,7 @@ from lightspeeur.layers import MaxPooling2D
 outputs = MaxPooling2D()(inputs)
 ```
 
-### Examples
-
-- lightspeeur
-  - examples
-    - mnist.py
-    - mobilenet.py
-
+### Example
 ```python
 import tensorflow as tf
 
