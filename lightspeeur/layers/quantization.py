@@ -9,11 +9,12 @@ EPSILON = 1e-6
 
 
 def quantize_image(x):
-    x = x.astype(np.uint8)
-    x = np.right_shift(x, np.ones_like(x) * 2)
-    x += 1
-    x = np.right_shift(x, np.ones_like(x)).astype(np.float32)
-    x = np.clip(x, 0., 31.)
+    x = tf.cast(x, tf.uint8)
+    x = tf.bitwise.right_shift(x, tf.ones_like(x) * 2)
+    x = x + 1
+    x = tf.bitwise.right_shift(x, tf.ones_like(x))
+    x = tf.cast(x, tf.float32)
+    x = tf.clip_by_value(x, 0., 31.)
     return x
 
 
