@@ -51,5 +51,11 @@ def test_folded_model_has_batch_norm():
         ModelStageAdvisor('2803', model, {}, folded_shape_model=folded_model)
 
 
+def test_ideal_model_success():
+    model = mock_convolutional_model()
+    folded_model = mock_convolutional_model(use_bias=True, conv_q=True, activation_q=True, batch_norm=False)
+    ModelStageAdvisor('2803', model, {}, folded_shape_model=folded_model)
+
+
 if __name__ == '__main__':
     pytest.main([__file__])

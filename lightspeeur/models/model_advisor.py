@@ -91,7 +91,7 @@ class ModelStageAdvisor:
         messages += self.validate_folded_shape_model()
         if len(messages) > 0:
             messages.insert(0, '{} problems have been found in the analog and folded model:'.format(len(messages)))
-        raise ValueError('\n'.join(messages))
+            raise ValueError('\n'.join(messages))
 
     def validate_model_bias(self) -> List[str]:
         analog_convs_has_bias = []
