@@ -14,7 +14,8 @@ from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.layers import BatchNormalization, Layer, Dense
 from lightspeeur.layers import Conv2D, Conv2DTranspose, DepthwiseConv2D, ReLU
 from lightspeeur.drivers import Specification
-from .model_reorganizer import reorganize_layers, get_inbound_layers, organize_layer
+from lightspeeur.models.model_reorganizer import reorganize_layers, get_inbound_layers, organize_layer
+from typing import List
 
 
 class LearningStage(Enum):
@@ -85,11 +86,37 @@ class ModelStageAdvisor:
         if self.cleanup_checkpoints and os.path.exists(self.checkpoints_dir):
             shutil.rmtree(self.checkpoints_dir)
 
-        self.validate_folded_shape_model()
+        messages = []
+        messages += self.validate_model_bias()
+        messages += self.validate_folded_shape_model()
+        if len(messages) > 0:
+            messages.insert(0, '{} problems have been found in the analog and folded model:'.format(len(messages)))
+        raise ValueError('\n'.join(messages))
 
-    def validate_folded_shape_model(self):
+    def validate_model_bias(self) -> List[str]:
+        analog_convs_has_bias = []
+        quantized_convs_has_no_bias = []
+        for layer in self.model.layers:
+            if is_eligible(layer, QUANTIZABLE_CONVOLUTION) and layer.use_bias:
+                analog_convs_has_bias.append(layer.name)
+
+        if self.folded_shape_model:
+            for layer in self.folded_shape_model.layers:
+                if is_eligible(layer, QUANTIZABLE_CONVOLUTION) and not layer.use_bias:
+                    quantized_convs_has_no_bias.append(layer.name)
+
+        messages = []
+        if len(analog_convs_has_bias) > 0:
+            messages.append('{} analog convolutional layers have bias. layer names: {}'
+                            .format(len(analog_convs_has_bias), ', '.join(analog_convs_has_bias)))
+        if len(quantized_convs_has_no_bias) > 0:
+            messages.append('{} quantized convolutional layers have no bias. layer names: {}'
+                            .format(len(quantized_convs_has_no_bias), ', '.join(quantized_convs_has_no_bias)))
+        return messages
+
+    def validate_folded_shape_model(self) -> List[str]:
         if self.folded_shape_model is None:
-            return
+            return []
 
         analog_conv = []
         not_folded = []
@@ -116,7 +143,7 @@ class ModelStageAdvisor:
                             .format(len(not_folded), ', '.join(not_folded)))
         if len(messages) > 0:
             messages.insert(0, '{} problems have been found in the folded shape model:'.format(len(messages)))
-            raise ValueError('\n'.join(messages))
+        return messages
 
     def invalidate_list_compile_option_recursively(self, array):
         for v in array:
